@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ESV Turnierbrowser</title>
+    <title>Turnier Planer</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   </head>
   <body>
     <header class="app-header">
       <div class="container">
-        <h1>ESV Turnierbrowser</h1>
+        <h1>Turnier Planer</h1>
         <nav class="tabs">
           <a href="{{ url_for('events') }}" class="{% if active_tab == 'events' %}active{% endif %}">Veranstaltungen</a>
           <a href="{{ url_for('planner') }}" class="{% if active_tab == 'planner' %}active{% endif %}">Planer</a>
