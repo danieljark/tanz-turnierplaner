@@ -20,18 +20,35 @@
 
 3. Im Browser `http://localhost:5000` (oder den im Terminal angezeigten Port) öffnen.
 
-## Funktionsumfang
-
-- **Einstellungen**: Hinterlege Benutzername, Passwort, Accept-Header sowie den kompletten `User-Agent` (z. B. `TPS.net/1.0; Token=abcdef`). Optional kannst du einen Standardfilter für Veranstalter/Ausrichter speichern. Alles landet lokal in `settings.json` (Klartext – nicht einchecken!).
-- **Veranstaltungen**: Lädt `/api/v1/veranstaltungen` mit deinem gespeicherten User-Agent. Wird kein Filter angegeben, nutzt die Ansicht automatisch den Standardfilter aus den Einstellungen – lässt du das Feld leer, werden alle Veranstaltungen geladen, die der API-User sehen darf. Ein Klick öffnet Details inkl. Turniere sowie Startliste (`/startliste/veranstaltung/{id}`) und erlaubt per ID direkt in eine Veranstaltung zu springen.
-- **Planer**: Eigener Tab, in dem du eine Veranstaltungs-ID und eine gewünschte Heat-Größe eingibst. Das Tool lädt Turnierdaten und Startliste, interpretiert anhand von `planner_rules.xml` die Rundenvorgaben, rechnet Dauer/Heats/Kreuze und stellt alle Turniere chronologisch pro Veranstaltungstag dar. Pläne lassen sich speichern (`plans.json`) und als JSON exportieren, so dass du sie später ohne API-Aufruf wieder abrufen kannst.
-- **Funktionäre**: Suchmaske auf `/api/v1/funktionaere` plus eine Schaltfläche „Alle anzeigen“, die die komplette Liste lädt (sofern dein Account freigeschaltet ist).
-## Turnierplaner anpassen
-
-- Die Datei `planner_rules.xml` beschreibt Heatgrößen, Pausen, Rundenschwellen und Tanzdauern. Passe die Attribute an, wenn du andere Vorgaben (z. B. mehr Zwischenrunden oder andere Kreuzvorgaben) willst.
-- Gespeicherte Pläne landen in `plans.json`. Dort kannst du sie archivieren oder per Tab „Planer“ erneut laden/als JSON exportieren. Möchtest du den Speicher zurücksetzen, lösche die Datei einfach.
 
 ### Screenshot
 ![alt text](image.png)
 
 ![alt text](image-1.png)
+
+### Roadmap
+
+1. Löschfunktion für Zeitpläne
+Gespeicherte Zeitpläne sollen gelöscht und umbenannt werden können.
+
+2. User Management per UI
+Pro User sollen individuelle Einstellungen möglich sein, etwa Rundenzeiten, Pausenzeiten oder die ESV-Zugangsdaten.
+
+3. Automatischer Docker-Compose Build und Updates
+Ein automatisierter Build und Update eines Docker-Stacks über GitHub Actions soll eingeführt werden.
+
+4. Hosting des öffentliche und eine interne Zeitplans
+Der Statische Zeitplan soll je eine eigene URL erhalten und gespeichert werden können.
+Er soll in einem Iframe dargestellt werden können, um ihn in andere Websiten eingebunden werden zu können.
+
+4. Upload-Funktion für Turniere
+Turniere sollen wieder hochgeladen werden können, um Zeiten anzupassen.
+Es wird nur die Turnier-ID mit den Zeiten hochgeladen!
+
+5. Dynamischer Zeitplan aus der Turniersoftware
+Der Zeitplan soll dynamisch Daten aus der Turniersoftware beziehen.
+Verschiebungen sollen nachfolgende Turniere automatisch berücksichtigen und eine neue Berechnung der Runden, und Startzeiten durchgeführt werden.
+
+
+6. Individuelle Endpoints für dynamische Ansichten
+Pro Zeitplan sollen eigene Endpoints bereitgestellt werden, damit mehrere Live-Ansichten parallel im selben System möglich sind.
