@@ -30,3 +30,8 @@
 
 - Die Datei `planner_rules.xml` beschreibt Heatgrößen, Pausen, Rundenschwellen und Tanzdauern. Passe die Attribute an, wenn du andere Vorgaben (z. B. mehr Zwischenrunden oder andere Kreuzvorgaben) willst.
 - Gespeicherte Pläne landen in `plans.json`. Dort kannst du sie archivieren oder per Tab „Planer“ erneut laden/als JSON exportieren. Möchtest du den Speicher zurücksetzen, lösche die Datei einfach.
+
+### Screenshot
+![alt text](image.png)
+
+![alt text](image-1.png)
