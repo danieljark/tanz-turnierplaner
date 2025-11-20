@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ESV Turnierbrowser</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="container">
+        <h1>ESV Turnierbrowser</h1>
+        <nav class="tabs">
+          <a href="{{ url_for('events') }}" class="{% if active_tab == 'events' %}active{% endif %}">Veranstaltungen</a>
+          <a href="{{ url_for('functionaries') }}" class="{% if active_tab == 'functionaries' %}active{% endif %}">Funktionäre</a>
+          <a href="{{ url_for('settings_view') }}" class="{% if active_tab == 'settings' %}active{% endif %}">Einstellungen</a>
+        </nav>
+      </div>
+    </header>
+    <main class="container">
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

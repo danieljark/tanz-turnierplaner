@@ -1,0 +1,6 @@
+.log
+settings.json
+.venv/
+dist/
+build/
+*.spec

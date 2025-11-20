@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="panel-header">
+    <h2>Funktionäre / Lizenzträger</h2>
+    <div class="hint">Abruf über /funktionaere (Achtung: Gesamtliste kann umfangreich sein).</div>
+  </div>
+  {% if creds_missing %}
+    <p class="error">Bitte zuerst Zugangsdaten im Tab Einstellungen hinterlegen.</p>
+  {% else %}
+    <form method="get" class="filters">
+      <label>
+        Suche nach Name, ID, Club oder Staat
+        <input type="text" name="q" value="{{ query }}" placeholder="z.B. Mustermann oder 123456">
+      </label>
+      <button type="submit">Suchen</button>
+    </form>
+    <form method="get" class="filters">
+      <input type="hidden" name="show_all" value="1">
+      <button type="submit">Alle anzeigen</button>
+    </form>
+    {% if show_all %}
+      <p class="hint">Es werden alle Funktionäre angezeigt, die dir laut API zugänglich sind.</p>
+    {% endif %}
+    {% if error %}
+      <p class="error">{{ error }}</p>
+    {% endif %}
+    {% if functionaries %}
+      <table class="tournaments">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Club</th>
+            <th>Lizenzen</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for person in functionaries %}
+            <tr>
+              <td>{{ person.id }}</td>
+              <td>{{ person.titel }} {{ person.vorname }} {{ person.nachname }}</td>
+              <td>
+                {% if person.club %}
+                  {{ person.club.name }}<br>
+                  {{ person.club.ltv.name if person.club.ltv else '' }}
+                {% else %}
+                  –
+                {% endif %}
+              </td>
+              <td>
+                {% if person.lizenzen %}
+                  {{ person.lizenzen | join(', ') }}
+                {% else %}
+                  –
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% elif (query or show_all) and not error %}
+      <p>Keine Funktionäre gefunden.</p>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

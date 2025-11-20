@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="panel-header">
+    <h2>Veranstaltungen</h2>
+    <div class="hint">Quelle: {{ settings.base_url }}</div>
+  </div>
+  {% if creds_missing %}
+    <p class="error">Bitte Zugangsdaten unter <a href="{{ url_for('settings_view') }}">Einstellungen</a> hinterlegen.</p>
+  {% else %}
+    <form method="get" class="filters">
+      <label>
+        Filter nach Veranstalter/Ausrichter
+        <input type="text" name="organizer" value="{{ organizer_filter }}" placeholder="z.B. Mein Verein">
+      </label>
+      <button type="submit">Aktualisieren</button>
+    </form>
+    <form method="get" class="filters">
+      <label>
+        Veranstaltung per ID öffnen
+        <input type="text" name="event_id" placeholder="z.B. 12345">
+      </label>
+      <button type="submit">Öffnen</button>
+    </form>
+    {% if default_filter %}
+      <p class="hint">Standardfilter aus den Einstellungen: "{{ default_filter }}". Mit leerem Feld werden alle verfügbaren Veranstaltungen geladen.</p>
+    {% endif %}
+    {% if event_error %}
+      <p class="error">{{ event_error }}</p>
+    {% elif events %}
+      <div class="event-list">
+        {% for event in events %}
+          <article class="event-card">
+            <header>
+              <h3><a href="{{ url_for('event_detail', event_id=event.id) }}">{{ event.title }}</a></h3>
+              <p>{{ event.date_from }} – {{ event.date_to }} · {{ event.city }}</p>
+            </header>
+            <ul>
+              <li><strong>Veranstalter:</strong> {{ event.veranstalter or '–' }}</li>
+              <li><strong>Ausrichter:</strong> {{ event.ausrichter or '–' }}</li>
+            </ul>
+            <p><a href="{{ url_for('event_detail', event_id=event.id) }}">Details & Startlisten →</a></p>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p>Keine Veranstaltungen gefunden.</p>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

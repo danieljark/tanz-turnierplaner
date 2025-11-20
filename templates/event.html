@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block content %}
+<a class="back-link" href="{{ url_for('events') }}">← Zurück zur Übersicht</a>
+{% if event_error %}
+  <p class="error">{{ event_error }}</p>
+{% elif not event %}
+  <p>Keine Daten zur Veranstaltung verfügbar.</p>
+{% else %}
+  <section class="panel">
+    <h2>{{ event.name or event.titel }} (ID {{ event.id }})</h2>
+    <p>
+      {{ event.datumVon }} – {{ event.datumBis }}<br>
+      {{ event.anschrift }}, {{ event.plz }} {{ event.ort }}
+    </p>
+    <div class="split">
+      <div>
+        <h3>Veranstalter</h3>
+        <p>{{ event.veranstalter.name if event.veranstalter else '–' }}</p>
+      </div>
+      <div>
+        <h3>Ausrichter</h3>
+        <p>{{ event.ausrichter.name if event.ausrichter else '–' }}</p>
+      </div>
+    </div>
+    {% if event.bemerkung %}
+      <p><strong>Bemerkung:</strong> {{ event.bemerkung }}</p>
+    {% endif %}
+  </section>
+  <section class="panel">
+    <h3>Turniere</h3>
+    {% if event.turniere %}
+      <table class="tournaments">
+        <thead>
+          <tr>
+            <th>Datum</th>
+            <th>Titel</th>
+            <th>Wettbewerbsart</th>
+            <th>Startgruppe</th>
+            <th>Startklasse/Liga</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in event.turniere %}
+            <tr>
+              <td>{{ t.datumVon }}<br>{{ t.datumBis }}</td>
+              <td>
+                <strong>{{ t.titel or t.turnierart }}</strong><br>
+                ID {{ t.id }}<br>
+                Fläche {{ t.flaechenID or 'n/a' }}
+              </td>
+              <td>{{ t.wettbewerbsart }}</td>
+              <td>{{ t.startgruppe }}</td>
+              <td>{{ t.startklasseLiga }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>Keine Turniere für diese Veranstaltung gefunden.</p>
+    {% endif %}
+  </section>
+  <section class="panel">
+    <h3>Startliste</h3>
+    {% if startlist_error %}
+      <p class="error">{{ startlist_error }}</p>
+    {% elif not startlist %}
+      <p>Keine Startliste verfügbar.</p>
+    {% else %}
+      <p>
+        Meldestatus: {{ startlist.status if startlist.status is not none else '–' }} ·
+        Nachmeldungen: {{ (startlist.nachmeldungen or [])|length }} ·
+        Starter: {{ (startlist.starter or [])|length }}
+      </p>
+      <table class="tournaments">
+        <thead>
+          <tr>
+            <th>Starter-ID</th>
+            <th>Starter</th>
+            <th>Club</th>
+            <th>Turniere</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for starter in startlist.starter or [] %}
+            <tr>
+              <td>{{ starter.id }}</td>
+              <td>
+                {% if starter.name %}
+                  <strong>{{ starter.name }}</strong>
+                {% endif %}
+                {% if starter.personen %}
+                  <ul>
+                    {% for person in starter.personen %}
+                      <li>{{ person.vorname }} {{ person.nachname }}{% if person.titel %} ({{ person.titel }}){% endif %}</li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+              </td>
+              <td>
+                {% if starter.club %}
+                  {{ starter.club.name }}<br>
+                  {{ starter.club.ltv.name if starter.club.ltv else '' }}
+                {% else %}
+                  –
+                {% endif %}
+              </td>
+              <td>
+                {% if starter.meldungen %}
+                  <ul>
+                    {% for meldung in starter.meldungen %}
+                      <li>Turnier {{ meldung.turnierId }} · Meldung: {{ 'Ja' if meldung.meldung else 'Nein' }}</li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  –
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  </section>
+{% endif %}
+{% endblock %}

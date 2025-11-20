@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h2>Zugangsdaten</h2>
+  <form method="post" class="form-grid">
+    <label>
+      API-Basis-URL
+      <input type="text" name="base_url" value="{{ (credentials.base_url if credentials else '') or '' }}" placeholder="https://.../api/v1" required>
+    </label>
+    <label>
+      Benutzername
+      <input type="text" name="username" value="{{ (credentials.username if credentials else '') or '' }}" required>
+    </label>
+    <label>
+      Passwort
+      <input type="password" name="password" value="{{ (credentials.password if credentials else '') or '' }}" required>
+    </label>
+    <label>
+      Accept-Header
+      <input type="text" name="accept" value="{{ (credentials.accept if credentials else '') or '' }}" placeholder="application/json">
+    </label>
+    <label>
+      Software-Name
+      <input type="text" name="software_name" placeholder="MeineSoftware" required>
+    </label>
+    <label>
+      Software-Version
+      <input type="text" name="software_version" placeholder="0.1" required>
+    </label>
+    <label>
+      Kennschlüssel / Token
+      <input type="text" name="token" placeholder="optional">
+    </label>
+    <div class="form-actions">
+      <button type="submit">Verbindung speichern</button>
+    </div>
+  </form>
+  {% if error %}
+    <p class="error">{{ error }}</p>
+  {% endif %}
+</section>
+
+{% if credentials %}
+<section class="panel">
+  <h2>Veranstaltungen</h2>
+  <form method="get" class="filters">
+    <label>
+      Filter nach Veranstalter/Ausrichter
+      <input type="text" name="organizer" value="{{ organizer_filter }}" placeholder="z.B. Mein Verein">
+    </label>
+    <button type="submit">Aktualisieren</button>
+  </form>
+  {% if events %}
+    <div class="event-list">
+      {% for event in events %}
+        <article class="event-card">
+          <header>
+            <h3><a href="{{ url_for('event_detail', event_id=event.id) }}">{{ event.title }}</a></h3>
+            <p>{{ event.date_from }} – {{ event.date_to }} · {{ event.city }}</p>
+          </header>
+          <ul>
+            <li><strong>Veranstalter:</strong> {{ event.veranstalter or '–' }}</li>
+            <li><strong>Ausrichter:</strong> {{ event.ausrichter or '–' }}</li>
+          </ul>
+          <p><a href="{{ url_for('event_detail', event_id=event.id) }}">Turniere anzeigen →</a></p>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p>Keine Veranstaltungen gefunden.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}
