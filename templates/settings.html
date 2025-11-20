@@ -37,6 +37,22 @@
       Standard-Filter Veranstalter/Ausrichter
       <input type="text" name="default_organizer_filter" value="{{ settings.default_organizer_filter }}" placeholder="z.B. Vereinsname">
     </label>
+    <label>
+      FTP-Host
+      <input type="text" name="ftp_host" value="{{ settings.ftp_host }}" placeholder="ftp.example.com">
+    </label>
+    <label>
+      FTP-Benutzer
+      <input type="text" name="ftp_user" value="{{ settings.ftp_user }}" placeholder="user">
+    </label>
+    <label>
+      FTP-Passwort
+      <input type="password" name="ftp_password" value="{{ settings.ftp_password }}" placeholder="pass">
+    </label>
+    <label>
+      FTP-Pfad (optional)
+      <input type="text" name="ftp_path" value="{{ settings.ftp_path }}" placeholder="/www/zeitplan/">
+    </label>
     <div class="form-actions">
       <button type="submit">Speichern</button>
     </div>

@@ -1,5 +1,5 @@
 <planner>
-  <general defaultHeatSize="6" maxHeatSize="8" breakMinutes="10" gapBetweenTournaments="5" defaultStart="09:00" />
+  <general defaultHeatSize="6" maxHeatSize="8" breakMinutes="10" gapBetweenTournaments="5" defaultStart="09:00" finalDuration="10" bufferPerHeat="0" />
   <roundThresholds>
     <threshold min="97" rounds="Vorrunde,Zwischenrunde 1,Zwischenrunde 2,Endrunde" nextCounts="48,24,6" crosses="48,24,6" />
     <threshold min="49" max="96" rounds="Vorrunde,Zwischenrunde,Endrunde" nextCounts="36,24,6" crosses="36,24" />

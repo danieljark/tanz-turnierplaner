@@ -13,6 +13,7 @@
         <nav class="tabs">
           <a href="{{ url_for('events') }}" class="{% if active_tab == 'events' %}active{% endif %}">Veranstaltungen</a>
           <a href="{{ url_for('planner') }}" class="{% if active_tab == 'planner' %}active{% endif %}">Planer</a>
+          <a href="{{ url_for('publish') }}" class="{% if active_tab == 'publish' %}active{% endif %}">Veröffentlichen</a>
           <a href="{{ url_for('functionaries') }}" class="{% if active_tab == 'functionaries' %}active{% endif %}">Funktionäre</a>
           <a href="{{ url_for('settings_view') }}" class="{% if active_tab == 'settings' %}active{% endif %}">Einstellungen</a>
         </nav>
@@ -24,7 +25,7 @@
     <footer class="app-footer">
       <div class="container">
         <span>Code by Daniel Jark</span>
-        <span>© {{ now().year }}</span>
+        <span>© {{ current_year }}</span>
       </div>
     </footer>
   </body>

@@ -6,6 +6,8 @@ Mini-UI to browse events and tournaments from the ESV API.
 from __future__ import annotations
 
 import json
+import base64
+import ftplib
 import math
 import os
 import sys
@@ -27,6 +29,7 @@ DEFAULT_ACCEPT = "application/json"
 ACCEPT_EVENT_DETAIL = "application/vnd.tanzsport.esv.v1.veranstaltung.l2+json"
 ACCEPT_STARTLIST = "application/vnd.tanzsport.esv.v1.startliste.l2+json"
 ACCEPT_FUNCTIONARIES = "application/vnd.tanzsport.esv.v1.funktionaere.l2+json"
+ACCEPT_STARTLIST_LEVEL1 = "application/vnd.tanzsport.esv.v1.startliste.l1+json"
 REQUEST_TIMEOUT = 20
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 SETTINGS_FILE = Path("settings.json")
@@ -41,6 +44,11 @@ app = Flask(
 app.secret_key = os.environ.get("ESV_UI_SECRET", "dev-secret-key")
 
 
+@app.context_processor
+def inject_now() -> Dict[str, Any]:
+    return {"current_year": datetime.utcnow().year}
+
+
 @dataclass
 class Settings:
     base_url: str
@@ -49,6 +57,10 @@ class Settings:
     accept: str
     user_agent: str
     default_organizer_filter: str
+    ftp_host: str
+    ftp_user: str
+    ftp_password: str
+    ftp_path: str
 
 
 def default_settings() -> Settings:
@@ -59,6 +71,10 @@ def default_settings() -> Settings:
         accept=DEFAULT_ACCEPT,
         user_agent="",
         default_organizer_filter="",
+        ftp_host="",
+        ftp_user="",
+        ftp_password="",
+        ftp_path="",
     )
 
 
@@ -97,8 +113,10 @@ def load_planner_rules() -> Dict[str, Any]:
         "default_heat_size": int(general_el.get("defaultHeatSize", "6")) if general_el is not None else 6,
         "max_heat_size": int(general_el.get("maxHeatSize", "8")) if general_el is not None else 8,
         "break_minutes": int(general_el.get("breakMinutes", "10")) if general_el is not None else 10,
+        "final_duration": int(general_el.get("finalDuration", "10")) if general_el is not None else 10,
         "gap_between_tournaments": int(general_el.get("gapBetweenTournaments", "5")) if general_el is not None else 5,
         "default_start": (general_el.get("defaultStart") if general_el is not None else "09:00"),
+        "buffer_per_heat": float(general_el.get("bufferPerHeat", "0")) if general_el is not None else 0.0,
     }
     thresholds: List[Dict[str, Any]] = []
     for threshold in root.findall("./roundThresholds/threshold"):
@@ -120,9 +138,9 @@ def load_planner_rules() -> Dict[str, Any]:
         code = dance.get("code")
         if not code:
             continue
-        min_val = float(dance.get("min", "1.5"))
+        # use max duration to be on the safe side
         max_val = float(dance.get("max", "2.0"))
-        dance_durations[code] = (min_val + max_val) / 2
+        dance_durations[code] = max_val
     return {
         "general": general,
         "thresholds": thresholds,
@@ -316,12 +334,33 @@ def determine_dances(tournament: Dict[str, Any]) -> List[str]:
     return DEFAULT_DANCES
 
 
+STARTGRUPPE_LABELS = {
+    "HGR": "Hauptgruppe",
+    "HGRII": "Hauptgruppe II",
+    "JUN": "Junioren",
+    "JUNI": "Junioren I",
+    "JUNII": "Junioren II",
+    "JUG": "Jugend",
+    "SENI": "Senioren I",
+    "SENII": "Senioren II",
+    "SENIII": "Senioren III",
+    "SENIV": "Senioren IV",
+}
+
+
+def prettify_startgruppe(raw: str | None) -> str:
+    if not raw:
+        return ""
+    key = raw.replace(" ", "").replace("/", "").upper()
+    return STARTGRUPPE_LABELS.get(key, raw)
+
+
 def generate_rounds_for_tournament(
     tournament: Dict[str, Any],
     starters: int,
     heat_size: int,
     rules: Dict[str, Any],
-) -> Tuple[List[Dict[str, Any]], float]:
+) -> Tuple[List[Dict[str, Any]], float, List[Dict[str, Any]]]:
     heat_size = max(1, heat_size)
     thresholds = rules["thresholds"]
     general = rules["general"]
@@ -335,12 +374,13 @@ def generate_rounds_for_tournament(
     durations = rules["dance_durations"]
     dance_minutes = sum(durations.get(code, 1.5) for code in dances) or 1.5
     rounds: List[Dict[str, Any]] = []
+    blocks: List[Dict[str, Any]] = []
     total_minutes = 0.0
     for idx, round_name in enumerate(rule["rounds"]):
         couples = counts[idx] if idx < len(counts) else counts[-1]
         couples = int(max(couples, 0))
         heats = max(1, math.ceil(couples / heat_size)) if couples else 1
-        duration = heats * dance_minutes
+        duration = math.ceil(heats * (dance_minutes + general.get("buffer_per_heat", 0)))
         rounds.append(
             {
                 "name": round_name,
@@ -353,14 +393,59 @@ def generate_rounds_for_tournament(
         )
         total_minutes += duration
         if idx < len(rule["rounds"]) - 1:
-            total_minutes += general["break_minutes"]
-    return rounds, total_minutes
+            pause_duration = math.ceil(general["break_minutes"])
+            total_minutes += pause_duration
+            blocks.append(
+                {
+                    "type": "pause",
+                    "label": "Pause",
+                    "minutes": pause_duration,
+                }
+            )
+
+    if general.get("final_duration", 0) > 0:
+        final_duration = math.ceil(float(general["final_duration"]))
+        blocks.append({"type": "final", "label": "Siegerehrung", "minutes": final_duration})
+        total_minutes += final_duration
+
+    # prepend the rounds as blocks
+    combined_blocks: List[Dict[str, Any]] = []
+    block_iter = iter(blocks)
+    for idx, round_data in enumerate(rounds):
+        combined_blocks.append(
+            {
+                "type": "round",
+                "label": round_data["name"],
+                "minutes": round_data["minutes"],
+                "couples": round_data["couples"],
+                "heats": round_data["heats"],
+                "dances": round_data["dances"],
+                "cross_info": round_data["cross_info"],
+            }
+        )
+        # insert pause after round if present at corresponding index
+        try:
+            pause_block = next(block_iter)
+            combined_blocks.append(pause_block)
+        except StopIteration:
+            pass
+    # any remaining blocks (e.g., finale)
+    for block in block_iter:
+        combined_blocks.append(block)
+
+    # recalc total from combined_blocks
+    total_minutes = sum(float(b.get("minutes", 0)) for b in combined_blocks)
+
+    return rounds, total_minutes, combined_blocks
 
 
 def build_event_plan(
     settings: Settings,
     event_id: str,
     heat_size: int,
+    cancel_enabled: bool = True,
+    cancel_under: int = 4,
+    previous_canceled: List[str] | None = None,
 ) -> Tuple[Dict[str, Any] | None, str | None]:
     rules = load_planner_rules()
     heat_size = max(1, min(heat_size, rules["general"]["max_heat_size"]))
@@ -392,16 +477,31 @@ def build_event_plan(
     if not event_data.get("turniere"):
         return None, "Keine Turniere im Datensatz gefunden."
 
+    canceled_list: List[Dict[str, Any]] = []
+    prev_canceled_set = set(previous_canceled or [])
+
     for tournament in event_data["turniere"]:
         tid = str(tournament.get("id"))
         starters = starter_counts.get(tid, 0)
-        rounds, total_minutes = generate_rounds_for_tournament(tournament, starters, heat_size, rules)
+        was_canceled_before = tid in prev_canceled_set
+        if cancel_enabled and starters < cancel_under:
+            status = "canceled"
+            canceled_list.append(
+                {
+                    "id": tid,
+                    "title": tournament.get("titel") or tournament.get("turnierart"),
+                    "starters": starters,
+                    "reason": f"Abgesagt (< {cancel_under} Starter)",
+                }
+            )
+            continue
+        rounds, total_minutes, blocks = generate_rounds_for_tournament(tournament, starters, heat_size, rules)
         date_key = tournament.get("datumVon") or event_data.get("datumVon")
         day_list = days.setdefault(date_key or "unbekannt", [])
         plan_entry = {
             "id": tid,
             "title": tournament.get("titel") or tournament.get("turnierart"),
-            "startgruppe": tournament.get("startgruppe"),
+            "startgruppe": prettify_startgruppe(tournament.get("startgruppe")),
             "startklasse": tournament.get("startklasseLiga"),
             "wettbewerbsart": tournament.get("wettbewerbsart"),
             "starters": starters,
@@ -409,6 +509,8 @@ def build_event_plan(
             "total_minutes": total_minutes,
             "startzeitPlan": tournament.get("startzeitPlan"),
             "heat_size": heat_size,
+            "blocks": blocks,
+            "reactivated": was_canceled_before and starters >= cancel_under,
         }
         day_list.append(plan_entry)
 
@@ -445,11 +547,55 @@ def build_event_plan(
             "datumBis": event_data.get("datumBis"),
         },
         "heat_size": heat_size,
+        "cancel_under": cancel_under,
+        "cancel_enabled": cancel_enabled,
         "generated_at": datetime.utcnow().isoformat(),
         "warnings": warnings,
         "days": scheduled_days,
+        "canceled": canceled_list,
     }
     return plan, None
+
+
+def build_startlists_by_tournament(startlist: Dict[str, Any]) -> Dict[str, List[Dict[str, str]]]:
+    result: Dict[str, List[Dict[str, str]]] = {}
+    if not startlist or not startlist.get("starter"):
+        return result
+    for starter in startlist["starter"]:
+        meldungen = starter.get("meldungen") or []
+        personen = starter.get("personen") or []
+        names = []
+        if personen:
+            if len(personen) >= 2:
+                names.append(f"{personen[0].get('nachname','')} {personen[0].get('vorname','')}".strip())
+                names.append(f"{personen[1].get('nachname','')} {personen[1].get('vorname','')}".strip())
+                names = [" & ".join(names)]
+            else:
+                names.append(f"{personen[0].get('nachname','')} {personen[0].get('vorname','')}".strip())
+        display_name = names[0] if names else f"Starter {starter.get('id')}"
+        club = None
+        ltv = None
+        if starter.get("club"):
+            club = starter["club"].get("name")
+            if starter["club"].get("ltv"):
+                ltv = starter["club"]["ltv"].get("name")
+        for meldung in meldungen:
+            tid = meldung.get("turnierId") or meldung.get("turnierID") or meldung.get("turnierid")
+            if tid is None:
+                continue
+            tid_str = str(tid)
+            result.setdefault(tid_str, []).append(
+                {
+                    "names": display_name,
+                    "club": club,
+                    "ltv": ltv,
+                }
+            )
+    return result
+
+
+def render_schedule_html(plan: Dict[str, Any], startlists: Dict[str, List[Dict[str, str]]]) -> str:
+    return render_template("static_schedule.html", plan=plan, startlists=startlists)
 
 
 def save_plan_record(plan: Dict[str, Any]) -> Dict[str, Any]:
@@ -461,6 +607,8 @@ def save_plan_record(plan: Dict[str, Any]) -> Dict[str, Any]:
         "event_name": plan["event"]["name"],
         "created_at": plan["generated_at"],
         "heat_size": plan["heat_size"],
+        "cancel_under": plan.get("cancel_under"),
+        "cancel_enabled": plan.get("cancel_enabled", True),
         "content": plan,
     }
     plans.append(record)
@@ -490,6 +638,10 @@ def settings_view() -> str:
                 accept=request.form.get("accept", DEFAULT_ACCEPT).strip() or DEFAULT_ACCEPT,
                 user_agent=request.form.get("user_agent", settings.user_agent).strip(),
                 default_organizer_filter=request.form.get("default_organizer_filter", "").strip(),
+                ftp_host=request.form.get("ftp_host", "").strip(),
+                ftp_user=request.form.get("ftp_user", "").strip(),
+                ftp_password=request.form.get("ftp_password", "").strip(),
+                ftp_path=request.form.get("ftp_path", "").strip(),
             )
             save_settings(data)
             settings = data
@@ -590,6 +742,7 @@ def planner() -> str:
     settings = load_settings()
     creds_missing = missing_credentials(settings)
     saved_plans = load_saved_plans()
+    refresh = request.args.get("refresh") == "1"
     try:
         planner_rules = load_planner_rules()
     except FileNotFoundError as exc:
@@ -600,6 +753,8 @@ def planner() -> str:
     default_heat_size = planner_rules["general"]["default_heat_size"] if planner_rules else 6
     heat_size_val = default_heat_size
     event_id = ""
+    cancel_under = 4
+    cancel_enabled = True
     plan_data = None
     message = None
     error = rules_error
@@ -614,6 +769,23 @@ def planner() -> str:
             plan_source = "saved"
             heat_size_val = plan_data.get("heat_size", default_heat_size)
             event_id = str(record.get("event_id") or "")
+            cancel_under = plan_data.get("cancel_under", cancel_under)
+            cancel_enabled = plan_data.get("cancel_enabled", cancel_enabled)
+            if refresh and not creds_missing and planner_rules:
+                prev_canceled = [c["id"] for c in plan_data.get("canceled", [])]
+                plan_data, plan_error = build_event_plan(
+                    settings,
+                    event_id,
+                    heat_size_val,
+                    cancel_enabled=cancel_enabled,
+                    cancel_under=cancel_under,
+                    previous_canceled=prev_canceled,
+                )
+                if plan_error:
+                    error = plan_error
+                    plan_data = None
+                else:
+                    plan_source = "refreshed"
         else:
             error = "Gespeicherter Plan wurde nicht gefunden."
 
@@ -624,6 +796,11 @@ def planner() -> str:
             heat_size_val = int(request.form.get("heat_size", default_heat_size))
         except ValueError:
             heat_size_val = default_heat_size
+        try:
+            cancel_under = int(request.form.get("cancel_under", cancel_under))
+        except ValueError:
+            cancel_under = 4
+        cancel_enabled = request.form.get("cancel_enabled") == "on"
         if planner_rules:
             heat_size_val = max(1, min(heat_size_val, planner_rules["general"]["max_heat_size"]))
         if not event_id:
@@ -633,7 +810,14 @@ def planner() -> str:
         elif not planner_rules:
             error = rules_error or "Planer-Konfiguration konnte nicht geladen werden."
         else:
-            plan_data, plan_error = build_event_plan(settings, event_id, heat_size_val)
+            plan_data, plan_error = build_event_plan(
+                settings,
+                event_id,
+                heat_size_val,
+                cancel_enabled=cancel_enabled,
+                cancel_under=cancel_under,
+                previous_canceled=None,
+            )
             if plan_error:
                 error = plan_error
                 plan_data = None
@@ -657,8 +841,74 @@ def planner() -> str:
         message=message,
         error=error,
         event_id=event_id,
+        cancel_under=cancel_under,
+        cancel_enabled=cancel_enabled,
         active_tab="planner",
         plan_source=plan_source,
+    )
+
+
+@app.route("/publish", methods=["GET", "POST"])
+def publish() -> str:
+    settings = load_settings()
+    saved_plans = load_saved_plans()
+    selected_plan_id = None
+    preview_html = None
+    message = None
+    error = None
+    ftp_host = settings.ftp_host
+    ftp_user = settings.ftp_user
+    ftp_password = settings.ftp_password
+    ftp_path = settings.ftp_path
+    filename = "zeitplan.html"
+
+    if request.method == "POST":
+        action = request.form.get("action")
+        selected_plan_id = request.form.get("plan_id")
+        ftp_host = request.form.get("ftp_host", ftp_host)
+        ftp_user = request.form.get("ftp_user", ftp_user)
+        ftp_password = request.form.get("ftp_password", ftp_password)
+        ftp_path = request.form.get("ftp_path", ftp_path)
+        filename = request.form.get("filename", filename)
+        record = find_saved_plan(selected_plan_id) if selected_plan_id else None
+        if not record:
+            error = "Bitte zuerst einen gespeicherten Plan wählen."
+        else:
+            plan = record["content"]
+            startlist_data, startlist_error = fetch_startlist(settings, str(plan["event"]["id"]))
+            if startlist_error:
+                error = f"Startliste konnte nicht geladen werden: {startlist_error}"
+            else:
+                startlists = build_startlists_by_tournament(startlist_data)
+                html = render_schedule_html(plan, startlists)
+                if action == "preview":
+                    preview_html = base64.b64encode(html.encode("utf-8")).decode("utf-8")
+                    message = "Vorschau erzeugt."
+                elif action == "upload":
+                    try:
+                        with ftplib.FTP(ftp_host) as ftp:
+                            ftp.login(ftp_user, ftp_password)
+                            if ftp_path:
+                                ftp.cwd(ftp_path)
+                            with ftp.transfercmd(f"STOR {filename}") as conn:
+                                conn.sendall(html.encode("utf-8"))
+                            message = "Upload erfolgreich."
+                    except Exception as exc:  # noqa: BLE001
+                        error = f"FTP-Upload fehlgeschlagen: {exc}"
+
+    return render_template(
+        "publish.html",
+        saved_plans=saved_plans,
+        selected_plan_id=selected_plan_id,
+        preview_html=preview_html,
+        message=message,
+        error=error,
+        ftp_host=ftp_host,
+        ftp_user=ftp_user,
+        ftp_password=ftp_password,
+        ftp_path=ftp_path,
+        filename=filename,
+        active_tab="publish",
     )
 
 

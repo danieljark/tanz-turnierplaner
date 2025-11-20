@@ -6,6 +6,16 @@
   {% if error %}
     <p class="error">{{ error }}</p>
   {% endif %}
+  {% if plan.canceled and plan.canceled|length > 0 %}
+    <div class="warning-list">
+      <strong>Abgesagte Turniere:</strong>
+      <ul>
+        {% for c in plan.canceled %}
+          <li>{{ c.title }} (ID {{ c.id }}) – {{ c.starters }} Starter · {{ c.reason }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
   {% if message %}
     <p class="success">{{ message }}</p>
   {% endif %}
@@ -18,6 +28,14 @@
       Heat-Größe
       <input type="number" name="heat_size" min="1" max="20" value="{{ heat_size }}">
       <small>Standard: {{ default_heat_size }}</small>
+    </label>
+    <label>
+      Untergrenze für Absage
+      <input type="number" name="cancel_under" min="0" max="50" value="{{ cancel_under }}">
+      <small>Turniere mit weniger Startern werden abgesagt</small>
+    </label>
+    <label>
+      <input type="checkbox" name="cancel_enabled" {% if cancel_enabled %}checked{% endif %}> Absagen erzwingen
     </label>
     <div class="form-actions">
       <button type="submit" name="action" value="generate">Plan erstellen</button>
@@ -53,24 +71,40 @@
             <th>Zeitraum</th>
             <th>Turnier</th>
             <th>Starter</th>
-            <th>Runden</th>
+            <th>Blöcke (drag & drop, editierbar)</th>
           </tr>
         </thead>
         <tbody>
           {% for tournament in day.tournaments %}
             <tr>
-              <td>{{ tournament.start_time }} – {{ tournament.end_time }}<br><small>ca. {{ tournament.total_minutes|round(1) }} Min.</small></td>
+              <td class="time-total">
+                <span class="t-start">{{ tournament.start_time }}</span> – <span class="t-end">{{ tournament.end_time }}</span><br>
+                <small>ca. <span class="t-total">{{ tournament.total_minutes|round(0) }}</span> Min.</small>
+              </td>
               <td>
                 <strong>{{ tournament.title }}</strong><br>
                 ID {{ tournament.id }} · {{ tournament.startgruppe }} {{ tournament.startklasse }} · {{ tournament.wettbewerbsart }}
+                {% if tournament.reactivated %}<span class="reactivated">(!) reaktiviert</span>{% endif %}
               </td>
               <td>{{ tournament.starters }}</td>
               <td>
-                <ul>
-                  {% for round in tournament.rounds %}
-                    <li>
-                      {{ round.name }}: {{ round.couples }} Paare · {{ round.heats }} Heats · Tänze {{ round.dances|join(', ') }} · ≈ {{ round.minutes|round(1) }} Min.
-                      {% if round.cross_info %}<br><small>Kreuzvorgabe: {{ round.cross_info }}</small>{% endif %}
+                <div class="block-actions">
+                  <button type="button" class="btn-add" data-type="pause">Pause hinzufügen</button>
+                  <button type="button" class="btn-add" data-type="custom">Block hinzufügen</button>
+                </div>
+                <ul class="block-list"
+                    data-start-time="{{ tournament.start_time }}"
+                    data-default-start="09:00">
+                  {% for block in tournament.blocks %}
+                    <li class="block-item" data-type="{{ block.type }}">
+                      <span class="drag-handle">⇅</span>
+                      <input class="block-label" type="text" value="{{ block.label or block.type }}" />
+                      <input class="block-minutes" type="number" min="0" step="0.5" value="{{ block.minutes|round(1) }}">
+                      {% if block.type == 'round' %}
+                        <small>{{ block.couples }} Paare · {{ block.heats }} Heats · Tänze {{ block.dances|join(', ') }}{% if block.cross_info %} · Kreuz: {{ block.cross_info }}{% endif %}</small>
+                      {% endif %}
+                      <span class="time-range"></span>
+                      <button type="button" class="btn-delete">✕</button>
                     </li>
                   {% endfor %}
                 </ul>
@@ -83,8 +117,129 @@
   {% endfor %}
   {% if plan.plan_id %}
     <p class="hint">Plan-ID: {{ plan.plan_id }} – Export: <a href="{{ url_for('planner_export', plan_id=plan.plan_id) }}">JSON herunterladen</a></p>
+    <button type="button" id="export-current">Aktuellen Stand als JSON exportieren</button>
+    <p><a href="{{ url_for('planner', plan_id=plan.plan_id, refresh=1) }}">Mit aktuellen API-Daten neu laden</a></p>
   {% endif %}
 </section>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script>
+  function parseTime(str) {
+    if (!str) return { hours: 9, minutes: 0 };
+    const parts = str.split(':').map(Number);
+    return { hours: parts[0] || 0, minutes: parts[1] || 0 };
+  }
+  function formatTime(h, m) {
+    if (h >= 24) h = h % 24;
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  }
+  function recalcTournament(listEl) {
+    const row = listEl.closest('tr');
+    const startText = listEl.dataset.startTime || listEl.dataset.defaultStart || '09:00';
+    let { hours, minutes } = parseTime(startText);
+    let currentMinutes = hours * 60 + minutes;
+    let total = 0;
+    listEl.querySelectorAll('.block-item').forEach((item) => {
+      const minutesInput = item.querySelector('.block-minutes');
+      const raw = parseFloat(minutesInput.value) || 0;
+      const duration = Math.ceil(raw); // always round up to full minutes
+      const startH = Math.floor(currentMinutes / 60);
+      const startM = currentMinutes % 60;
+      const endMinutes = currentMinutes + duration;
+      const endH = Math.floor(endMinutes / 60);
+      const endM = endMinutes % 60;
+      const trange = item.querySelector('.time-range');
+      trange.textContent = ` ${formatTime(startH, startM)}–${formatTime(endH, endM)}`;
+      currentMinutes = endMinutes;
+      total += duration;
+    });
+    row.querySelector('.t-start').textContent = startText;
+    row.querySelector('.t-end').textContent = formatTime(Math.floor(currentMinutes/60), currentMinutes%60);
+    row.querySelector('.t-total').textContent = total.toFixed(0);
+  }
+  function attachPlanner() {
+    document.querySelectorAll('.block-list').forEach((listEl) => {
+      recalcTournament(listEl);
+      Sortable.create(listEl, {
+        handle: '.drag-handle',
+        animation: 150,
+        onSort: () => recalcTournament(listEl),
+      });
+    });
+
+    document.addEventListener('input', (ev) => {
+      if (ev.target.classList.contains('block-minutes')) {
+        const listEl = ev.target.closest('.block-list');
+        recalcTournament(listEl);
+      }
+    });
+
+    document.addEventListener('click', (ev) => {
+      if (ev.target.classList.contains('btn-delete')) {
+        const listEl = ev.target.closest('.block-list');
+        ev.target.closest('.block-item').remove();
+        recalcTournament(listEl);
+      }
+      if (ev.target.classList.contains('btn-add')) {
+        const listEl = ev.target.closest('td').querySelector('.block-list');
+        const type = ev.target.dataset.type;
+        const li = document.createElement('li');
+        li.className = 'block-item';
+        li.dataset.type = type === 'pause' ? 'pause' : 'custom';
+        li.innerHTML = `
+          <span class="drag-handle">⇅</span>
+          <input class="block-label" type="text" value="${type === 'pause' ? 'Pause' : 'Block'}" />
+          <input class="block-minutes" type="number" min="0" step="0.5" value="${type === 'pause' ? 10 : 5}">
+          <span class="time-range"></span>
+          <button type="button" class="btn-delete">✕</button>
+        `;
+        listEl.appendChild(li);
+        recalcTournament(listEl);
+      }
+    });
+
+    const exportBtn = document.getElementById('export-current');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => {
+        const plan = { days: [] };
+        document.querySelectorAll('.plan-day').forEach((dayEl) => {
+          const date = dayEl.querySelector('h4')?.textContent?.trim();
+          const dayData = { date, tournaments: [] };
+          dayEl.querySelectorAll('tr').forEach((row) => {
+            const title = row.querySelector('td:nth-child(2) strong')?.textContent?.trim();
+            const idMatch = row.querySelector('td:nth-child(2)')?.textContent.match(/ID\\s(\\d+)/);
+            const tId = idMatch ? idMatch[1] : '';
+            const blocks = [];
+            row.querySelectorAll('.block-item').forEach((item) => {
+              blocks.push({
+                type: item.dataset.type,
+                label: item.querySelector('.block-label')?.value || '',
+                minutes: parseFloat(item.querySelector('.block-minutes')?.value || '0'),
+                time_range: item.querySelector('.time-range')?.textContent?.trim() || '',
+              });
+            });
+            dayData.tournaments.push({
+              id: tId,
+              title,
+              blocks,
+              start_time: row.querySelector('.t-start')?.textContent,
+              end_time: row.querySelector('.t-end')?.textContent,
+              total_minutes: row.querySelector('.t-total')?.textContent,
+            });
+          });
+          plan.days.push(dayData);
+        });
+        const blob = new Blob([JSON.stringify(plan, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'plan-aktuell.json';
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+    }
+  }
+  document.addEventListener('DOMContentLoaded', attachPlanner);
+</script>
 {% endif %}
 
 <section class="panel">
