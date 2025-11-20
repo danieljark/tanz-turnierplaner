@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Mini-UI to browse events and tournaments from the ESV API.
-"""
-
 from __future__ import annotations
 
 import json
