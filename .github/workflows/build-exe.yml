@@ -30,6 +30,7 @@ jobs:
           pyinstaller --noconfirm --onefile --name turnierbrowser \
             --add-data "templates;templates" \
             --add-data "static;static" \
+            --add-data "planner_rules.xml;." \
             main.py
 
       - name: Upload artifact
