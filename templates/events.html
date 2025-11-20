@@ -3,14 +3,13 @@
 <section class="panel">
   <div class="panel-header">
     <h2>Veranstaltungen</h2>
-    <div class="hint">Quelle: {{ settings.base_url }}</div>
   </div>
   {% if creds_missing %}
     <p class="error">Bitte Zugangsdaten unter <a href="{{ url_for('settings_view') }}">Einstellungen</a> hinterlegen.</p>
   {% else %}
     <form method="get" class="filters">
       <label>
-        Filter nach Veranstalter/Ausrichter
+        Filter nach Ausrichter
         <input type="text" name="organizer" value="{{ organizer_filter }}" placeholder="z.B. Mein Verein">
       </label>
       <button type="submit">Aktualisieren</button>

@@ -2,7 +2,7 @@
 {% block content %}
 <section class="panel">
   <h2>Turnierplaner</h2>
-  <p>Erzeuge einen Zeitplan je Veranstaltung. Die Rundenstruktur lässt sich über <code>planner_rules.xml</code> anpassen.</p>
+  <p>Erzeuge einen Zeitplan für ein Event.</p>
   {% if error %}
     <p class="error">{{ error }}</p>
   {% endif %}
@@ -27,7 +27,6 @@
     <label>
       Heat-Größe
       <input type="number" name="heat_size" min="1" max="20" value="{{ heat_size }}">
-      <small>Standard: {{ default_heat_size }}</small>
     </label>
     <label>
       Untergrenze für Absage
@@ -35,7 +34,7 @@
       <small>Turniere mit weniger Startern werden abgesagt</small>
     </label>
     <label>
-      <input type="checkbox" name="cancel_enabled" {% if cancel_enabled %}checked{% endif %}> Absagen erzwingen
+      <input type="checkbox" name="cancel_enabled" {% if cancel_enabled %}checked{% endif %}> Absagen durchführen
     </label>
     <div class="form-actions">
       <button type="submit" name="action" value="generate">Plan erstellen</button>
@@ -63,33 +62,39 @@
     </ul>
   {% endif %}
   {% for day in plan.days %}
-    <article class="plan-day">
-      <h4>{{ day.date }}</h4>
+    <article class="plan-day" data-day="{{ day.display_date or day.date }}">
+      <h4>{{ day.display_date or day.date }}</h4>
+      <button type="button" class="btn-add-day">Block (Turnier/Show) hinzufügen</button>
       <table class="tournaments plan-table">
         <thead>
           <tr>
             <th>Zeitraum</th>
-            <th>Turnier</th>
+            <th>Turnier <span class="tournament-handle">⇅</span></th>
             <th>Starter</th>
-            <th>Blöcke (drag & drop, editierbar)</th>
+            <th>Blöcke</th>
           </tr>
         </thead>
         <tbody>
           {% for tournament in day.tournaments %}
-            <tr>
+            <tr data-id="{{ tournament.id }}" data-startgruppe="{{ tournament.startgruppe }}" data-startklasse="{{ tournament.startklasse }}" data-wettbewerbsart="{{ tournament.wettbewerbsart }}" class="{% if tournament.canceled %}canceled{% endif %}">
               <td class="time-total">
                 <span class="t-start">{{ tournament.start_time }}</span> – <span class="t-end">{{ tournament.end_time }}</span><br>
                 <small>ca. <span class="t-total">{{ tournament.total_minutes|round(0) }}</span> Min.</small>
               </td>
               <td>
-                <strong>{{ tournament.title }}</strong><br>
+                <span class="tournament-row-handle">⇅</span>
+                <strong contenteditable="true">{{ tournament.title }}</strong><br>
                 ID {{ tournament.id }} · {{ tournament.startgruppe }} {{ tournament.startklasse }} · {{ tournament.wettbewerbsart }}
                 {% if tournament.reactivated %}<span class="reactivated">(!) reaktiviert</span>{% endif %}
+                {% if tournament.description %}<div class="hint">{{ tournament.description }}</div>{% endif %}
+                <div class="block-actions">
+                  <button type="button" class="btn-cancel-toggle">Absagen/Reaktivieren</button>
+                  <button type="button" class="btn-delete-row">Entfernen</button>
+                </div>
               </td>
-              <td>{{ tournament.starters }}</td>
+              <td><input type="number" class="manual-starters" min="0" value="{{ tournament.starters }}"></td>
               <td>
                 <div class="block-actions">
-                  <button type="button" class="btn-add" data-type="pause">Pause hinzufügen</button>
                   <button type="button" class="btn-add" data-type="custom">Block hinzufügen</button>
                 </div>
                 <ul class="block-list"
@@ -117,7 +122,12 @@
   {% endfor %}
   {% if plan.plan_id %}
     <p class="hint">Plan-ID: {{ plan.plan_id }} – Export: <a href="{{ url_for('planner_export', plan_id=plan.plan_id) }}">JSON herunterladen</a></p>
-    <button type="button" id="export-current">Aktuellen Stand als JSON exportieren</button>
+    <form method="post">
+      <input type="hidden" name="action" value="save_current">
+      <input type="hidden" name="plan_id" value="{{ plan.plan_id }}">
+      <input type="hidden" name="plan_payload" id="plan-payload">
+      <button type="button" id="save-current">Aktuelle Anordnung speichern</button>
+    </form>
     <p><a href="{{ url_for('planner', plan_id=plan.plan_id, refresh=1) }}">Mit aktuellen API-Daten neu laden</a></p>
   {% endif %}
 </section>
@@ -156,13 +166,52 @@
     row.querySelector('.t-end').textContent = formatTime(Math.floor(currentMinutes/60), currentMinutes%60);
     row.querySelector('.t-total').textContent = total.toFixed(0);
   }
+  function recalcDay(table) {
+    const defaultStart = '09:00';
+    let current = parseTime(defaultStart);
+    let currentMinutes = current.hours * 60 + current.minutes;
+    table.querySelectorAll('tbody tr').forEach((row) => {
+      if (row.classList.contains('canceled')) {
+        row.querySelector('.t-start').textContent = '--:--';
+        row.querySelector('.t-end').textContent = '--:--';
+        row.querySelector('.t-total').textContent = '0';
+        return;
+      }
+      const listEl = row.querySelector('.block-list');
+      let total = 0;
+      if (listEl) {
+        listEl.querySelectorAll('.block-item').forEach((item) => {
+          const minutesInput = item.querySelector('.block-minutes');
+          const raw = parseFloat(minutesInput.value) || 0;
+          const duration = Math.ceil(raw);
+          const trange = item.querySelector('.time-range');
+          const startH = Math.floor(currentMinutes / 60);
+          const startM = currentMinutes % 60;
+          const endMinutes = currentMinutes + duration;
+          const endH = Math.floor(endMinutes / 60);
+          const endM = endMinutes % 60;
+          if (trange) trange.textContent = ` ${formatTime(startH, startM)}–${formatTime(endH, endM)}`;
+          currentMinutes = endMinutes;
+          total += duration;
+        });
+      }
+      row.querySelector('.t-start').textContent = formatTime(Math.floor((currentMinutes - total)/60), (currentMinutes - total)%60);
+      row.querySelector('.t-end').textContent = formatTime(Math.floor(currentMinutes/60), currentMinutes%60);
+      row.querySelector('.t-total').textContent = total.toFixed(0);
+      currentMinutes += 0; // gap could be added here if needed
+    });
+  }
+
   function attachPlanner() {
     document.querySelectorAll('.block-list').forEach((listEl) => {
       recalcTournament(listEl);
       Sortable.create(listEl, {
         handle: '.drag-handle',
         animation: 150,
-        onSort: () => recalcTournament(listEl),
+        onSort: () => {
+          recalcTournament(listEl);
+          recalcDay(listEl.closest('.plan-table'));
+        },
       });
     });
 
@@ -170,6 +219,10 @@
       if (ev.target.classList.contains('block-minutes')) {
         const listEl = ev.target.closest('.block-list');
         recalcTournament(listEl);
+        recalcDay(listEl.closest('.plan-table'));
+      }
+      if (ev.target.classList.contains('manual-starters')) {
+        recalcDay(ev.target.closest('.plan-table'));
       }
     });
 
@@ -178,63 +231,129 @@
         const listEl = ev.target.closest('.block-list');
         ev.target.closest('.block-item').remove();
         recalcTournament(listEl);
+        recalcDay(listEl.closest('.plan-table'));
       }
       if (ev.target.classList.contains('btn-add')) {
         const listEl = ev.target.closest('td').querySelector('.block-list');
-        const type = ev.target.dataset.type;
         const li = document.createElement('li');
         li.className = 'block-item';
-        li.dataset.type = type === 'pause' ? 'pause' : 'custom';
+        li.dataset.type = 'custom';
         li.innerHTML = `
           <span class="drag-handle">⇅</span>
-          <input class="block-label" type="text" value="${type === 'pause' ? 'Pause' : 'Block'}" />
-          <input class="block-minutes" type="number" min="0" step="0.5" value="${type === 'pause' ? 10 : 5}">
+          <input class="block-label" type="text" value="Block" />
+          <input class="block-minutes" type="number" min="0" step="0.5" value="5">
           <span class="time-range"></span>
           <button type="button" class="btn-delete">✕</button>
         `;
         listEl.appendChild(li);
         recalcTournament(listEl);
+        recalcDay(listEl.closest('.plan-table'));
+      }
+      if (ev.target.classList.contains('btn-cancel-toggle')) {
+        const row = ev.target.closest('tr');
+        row.classList.toggle('canceled');
+        recalcDay(ev.target.closest('.plan-table'));
+      }
+      if (ev.target.classList.contains('btn-delete-row')) {
+        const table = ev.target.closest('.plan-table');
+        ev.target.closest('tr').remove();
+        recalcDay(table);
       }
     });
 
-    const exportBtn = document.getElementById('export-current');
-    if (exportBtn) {
-      exportBtn.addEventListener('click', () => {
+    // Add Sortable to whole day (tournaments)
+    document.querySelectorAll('.plan-table tbody').forEach((tbody) => {
+      Sortable.create(tbody, {
+        handle: '.tournament-row-handle',
+        animation: 150,
+        onSort: () => recalcDay(tbody.closest('.plan-table')),
+      });
+    });
+
+    // add whole-block (as tournament) to a day
+    document.querySelectorAll('.btn-add-day').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const table = btn.nextElementSibling;
+        const tbody = table.querySelector('tbody');
+        const nowId = `BLOCK-${Date.now()}`;
+        const row = document.createElement('tr');
+        row.dataset.id = nowId;
+        row.dataset.startgruppe = '';
+        row.dataset.startklasse = '';
+        row.dataset.wettbewerbsart = '';
+        row.innerHTML = `
+          <td class="time-total">
+            <span class="t-start">--:--</span> – <span class="t-end">--:--</span><br>
+            <small>ca. <span class="t-total">0</span> Min.</small>
+          </td>
+          <td>
+            <span class="tournament-row-handle">⇅</span>
+            <strong contenteditable="true">Sonderblock</strong><br>
+            <span class="hint">ID ${nowId}</span>
+            <div class="hint"><input class="block-desc" type="text" placeholder="Beschreibung (intern)"></div>
+            <div class="block-actions">
+              <button type="button" class="btn-cancel-toggle">Absagen/Reaktivieren</button>
+              <button type="button" class="btn-delete-row">Entfernen</button>
+            </div>
+          </td>
+          <td><input type="number" class="manual-starters" min="0" value="0"></td>
+          <td>
+            <ul class="block-list" data-start-time="09:00" data-default-start="09:00">
+              <li class="block-item" data-type="custom">
+                <span class="drag-handle">⇅</span>
+                <input class="block-label" type="text" value="Block" />
+                <input class="block-minutes" type="number" min="0" step="0.5" value="10">
+                <span class="time-range"></span>
+                <button type="button" class="btn-delete">✕</button>
+              </li>
+            </ul>
+          </td>
+        `;
+        tbody.appendChild(row);
+        recalcTournament(row.querySelector('.block-list'));
+        recalcDay(table);
+      });
+    });
+
+    const saveBtn = document.getElementById('save-current');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', () => {
         const plan = { days: [] };
         document.querySelectorAll('.plan-day').forEach((dayEl) => {
-          const date = dayEl.querySelector('h4')?.textContent?.trim();
+          const date = dayEl.dataset.day;
           const dayData = { date, tournaments: [] };
           dayEl.querySelectorAll('tr').forEach((row) => {
             const title = row.querySelector('td:nth-child(2) strong')?.textContent?.trim();
-            const idMatch = row.querySelector('td:nth-child(2)')?.textContent.match(/ID\\s(\\d+)/);
-            const tId = idMatch ? idMatch[1] : '';
+            const tId = row.dataset.id || '';
             const blocks = [];
             row.querySelectorAll('.block-item').forEach((item) => {
               blocks.push({
                 type: item.dataset.type,
                 label: item.querySelector('.block-label')?.value || '',
                 minutes: parseFloat(item.querySelector('.block-minutes')?.value || '0'),
-                time_range: item.querySelector('.time-range')?.textContent?.trim() || '',
               });
             });
+            const starterInput = row.querySelector('.manual-starters');
+            const startersVal = starterInput ? starterInput.value : (row.querySelector('td:nth-child(3)')?.textContent?.trim() || '');
             dayData.tournaments.push({
               id: tId,
               title,
+              startgruppe: row.dataset.startgruppe || '',
+              startklasse: row.dataset.startklasse || '',
+              wettbewerbsart: row.dataset.wettbewerbsart || '',
+              canceled: row.classList.contains('canceled'),
+              start_time: row.querySelector('.t-start')?.textContent || '',
+              end_time: row.querySelector('.t-end')?.textContent || '',
+              total_minutes: parseFloat(row.querySelector('.t-total')?.textContent || '0'),
+              description: row.querySelector('.block-desc')?.value || '',
+              starters: startersVal,
               blocks,
-              start_time: row.querySelector('.t-start')?.textContent,
-              end_time: row.querySelector('.t-end')?.textContent,
-              total_minutes: row.querySelector('.t-total')?.textContent,
             });
           });
           plan.days.push(dayData);
         });
-        const blob = new Blob([JSON.stringify(plan, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'plan-aktuell.json';
-        a.click();
-        URL.revokeObjectURL(url);
+        document.getElementById('plan-payload').value = JSON.stringify(plan);
+        saveBtn.closest('form').submit();
       });
     }
   }

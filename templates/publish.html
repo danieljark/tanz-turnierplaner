@@ -39,6 +39,13 @@
       Dateiname
       <input type="text" name="filename" value="{{ filename or 'zeitplan.html' }}">
     </label>
+    <label>
+      Export-Typ
+      <select name="variant">
+        <option value="internal" {% if variant == 'internal' %}selected{% endif %}>Intern (mit Blöcken)</option>
+        <option value="external" {% if variant == 'external' %}selected{% endif %}>Extern (nur Zeiten)</option>
+      </select>
+    </label>
     <div class="form-actions">
       <button type="submit" name="action" value="preview">Vorschau erzeugen</button>
       <button type="submit" name="action" value="upload">Per FTP hochladen</button>

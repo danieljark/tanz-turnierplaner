@@ -104,6 +104,12 @@ def build_user_agent(settings: Settings) -> str:
 
 @lru_cache(maxsize=1)
 def load_planner_rules() -> Dict[str, Any]:
+    def _parse_float(val: str, default: float = 0.0) -> float:
+        try:
+            return float(val.replace(",", "."))
+        except Exception:
+            return default
+
     if not PLANNER_RULES_PATH.exists():
         raise FileNotFoundError(f"Planner configuration missing at {PLANNER_RULES_PATH}")
     tree = ET.parse(PLANNER_RULES_PATH)
@@ -116,7 +122,7 @@ def load_planner_rules() -> Dict[str, Any]:
         "final_duration": int(general_el.get("finalDuration", "10")) if general_el is not None else 10,
         "gap_between_tournaments": int(general_el.get("gapBetweenTournaments", "5")) if general_el is not None else 5,
         "default_start": (general_el.get("defaultStart") if general_el is not None else "09:00"),
-        "buffer_per_heat": float(general_el.get("bufferPerHeat", "0")) if general_el is not None else 0.0,
+        "buffer_per_heat": _parse_float(general_el.get("bufferPerHeat", "0")) if general_el is not None else 0.0,
     }
     thresholds: List[Dict[str, Any]] = []
     for threshold in root.findall("./roundThresholds/threshold"):
@@ -484,8 +490,10 @@ def build_event_plan(
         tid = str(tournament.get("id"))
         starters = starter_counts.get(tid, 0)
         was_canceled_before = tid in prev_canceled_set
-        if cancel_enabled and starters < cancel_under:
-            status = "canceled"
+        canceled_flag = cancel_enabled and starters < cancel_under
+        was_canceled_before = tid in prev_canceled_set
+        reactivated_flag = was_canceled_before and not canceled_flag
+        if canceled_flag:
             canceled_list.append(
                 {
                     "id": tid,
@@ -494,8 +502,10 @@ def build_event_plan(
                     "reason": f"Abgesagt (< {cancel_under} Starter)",
                 }
             )
-            continue
         rounds, total_minutes, blocks = generate_rounds_for_tournament(tournament, starters, heat_size, rules)
+        if canceled_flag:
+            blocks = []
+            total_minutes = 0
         date_key = tournament.get("datumVon") or event_data.get("datumVon")
         day_list = days.setdefault(date_key or "unbekannt", [])
         plan_entry = {
@@ -510,7 +520,8 @@ def build_event_plan(
             "startzeitPlan": tournament.get("startzeitPlan"),
             "heat_size": heat_size,
             "blocks": blocks,
-            "reactivated": was_canceled_before and starters >= cancel_under,
+            "reactivated": reactivated_flag,
+            "canceled": canceled_flag,
         }
         day_list.append(plan_entry)
 
@@ -594,8 +605,32 @@ def build_startlists_by_tournament(startlist: Dict[str, Any]) -> Dict[str, List[
     return result
 
 
-def render_schedule_html(plan: Dict[str, Any], startlists: Dict[str, List[Dict[str, str]]]) -> str:
-    return render_template("static_schedule.html", plan=plan, startlists=startlists)
+def format_date_label(date_str: str | None) -> str:
+    if not date_str:
+        return ""
+    try:
+        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            return date_str
+    weekdays = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+    return f"{dt.strftime('%d.%m.%Y')} - {weekdays[dt.weekday()]}"
+
+
+def render_schedule_html(plan: Dict[str, Any], startlists: Dict[str, List[Dict[str, str]]] | None, variant: str = "internal") -> str:
+    # Normalize dates for display
+    for day in plan.get("days", []):
+        day["display_date"] = format_date_label(day.get("date"))
+    plan["event"]["range_label"] = ""
+    if plan["event"].get("datumVon"):
+        von = format_date_label(plan["event"]["datumVon"])
+        bis = format_date_label(plan["event"].get("datumBis") or plan["event"]["datumVon"])
+        plan["event"]["range_label"] = f"{von} – {bis}" if bis and bis != von else von
+
+    template_name = "static_schedule.html" if variant == "internal" else "static_schedule_public.html"
+    return render_template(template_name, plan=plan, startlists=startlists or {})
 
 
 def save_plan_record(plan: Dict[str, Any]) -> Dict[str, Any]:
@@ -614,6 +649,25 @@ def save_plan_record(plan: Dict[str, Any]) -> Dict[str, Any]:
     plans.append(record)
     persist_saved_plans(plans)
     return record
+
+
+def update_plan_record(plan_id: str, plan: Dict[str, Any]) -> Dict[str, Any] | None:
+    plans = load_saved_plans()
+    updated = None
+    for idx, rec in enumerate(plans):
+        if rec.get("id") == plan_id:
+            rec["content"] = plan
+            rec["created_at"] = plan.get("generated_at") or rec.get("created_at")
+            rec["heat_size"] = plan.get("heat_size", rec.get("heat_size"))
+            rec["cancel_under"] = plan.get("cancel_under", rec.get("cancel_under"))
+            rec["cancel_enabled"] = plan.get("cancel_enabled", rec.get("cancel_enabled"))
+            rec["event_name"] = plan.get("event", {}).get("name", rec.get("event_name"))
+            plans[idx] = rec
+            updated = rec
+            break
+    if updated:
+        persist_saved_plans(plans)
+    return updated
 
 
 @app.route("/")
@@ -743,6 +797,8 @@ def planner() -> str:
     creds_missing = missing_credentials(settings)
     saved_plans = load_saved_plans()
     refresh = request.args.get("refresh") == "1"
+    action = request.form.get("action") if request.method == "POST" else None
+    selected_plan_id = request.args.get("plan_id") or (request.form.get("plan_id") if request.method == "POST" else None)
     try:
         planner_rules = load_planner_rules()
     except FileNotFoundError as exc:
@@ -760,9 +816,8 @@ def planner() -> str:
     error = rules_error
     plan_source = None
 
-    plan_id = request.args.get("plan_id")
-    if plan_id:
-        record = find_saved_plan(plan_id)
+    if selected_plan_id:
+        record = find_saved_plan(selected_plan_id)
         if record:
             plan_data = record["content"]
             plan_data["plan_id"] = record["id"]
@@ -789,7 +844,36 @@ def planner() -> str:
         else:
             error = "Gespeicherter Plan wurde nicht gefunden."
 
-    if request.method == "POST" and not plan_id:
+    if request.method == "POST" and action == "save_current":
+        payload_raw = request.form.get("plan_payload", "")
+        try:
+            payload = json.loads(payload_raw)
+        except json.JSONDecodeError:
+            error = "Ungültiges Plan-JSON."
+            payload = None
+        if payload:
+            record = find_saved_plan(selected_plan_id)
+            if not record:
+                error = "Plan zum Aktualisieren nicht gefunden."
+            else:
+                plan = record["content"]
+                plan["days"] = payload.get("days", plan.get("days", []))
+                plan["generated_at"] = datetime.utcnow().isoformat()
+                canceled = []
+                for day in plan["days"]:
+                    for t in day.get("tournaments", []):
+                        if t.get("canceled"):
+                            canceled.append({"id": t.get("id"), "title": t.get("title"), "reason": "Manuell abgesagt"})
+                plan["canceled"] = canceled
+                updated = update_plan_record(record["id"], plan)
+                if updated:
+                    message = "Plan aktualisiert."
+                    plan_data = updated["content"]
+                    plan_data["plan_id"] = updated["id"]
+                else:
+                    error = "Plan konnte nicht aktualisiert werden."
+
+    if request.method == "POST" and action != "save_current":
         action = request.form.get("action", "generate")
         event_id = request.form.get("event_id", "").strip()
         try:
@@ -809,7 +893,7 @@ def planner() -> str:
             error = "Bitte zunächst Zugangsdaten im Tab Einstellungen hinterlegen."
         elif not planner_rules:
             error = rules_error or "Planer-Konfiguration konnte nicht geladen werden."
-        else:
+        elif action != "save_current":
             plan_data, plan_error = build_event_plan(
                 settings,
                 event_id,
@@ -861,10 +945,12 @@ def publish() -> str:
     ftp_password = settings.ftp_password
     ftp_path = settings.ftp_path
     filename = "zeitplan.html"
+    variant = "internal"
 
     if request.method == "POST":
         action = request.form.get("action")
         selected_plan_id = request.form.get("plan_id")
+        variant = request.form.get("variant", variant)
         ftp_host = request.form.get("ftp_host", ftp_host)
         ftp_user = request.form.get("ftp_user", ftp_user)
         ftp_password = request.form.get("ftp_password", ftp_password)
@@ -876,25 +962,24 @@ def publish() -> str:
         else:
             plan = record["content"]
             startlist_data, startlist_error = fetch_startlist(settings, str(plan["event"]["id"]))
+            startlists = build_startlists_by_tournament(startlist_data) if not startlist_error else {}
             if startlist_error:
                 error = f"Startliste konnte nicht geladen werden: {startlist_error}"
-            else:
-                startlists = build_startlists_by_tournament(startlist_data)
-                html = render_schedule_html(plan, startlists)
-                if action == "preview":
-                    preview_html = base64.b64encode(html.encode("utf-8")).decode("utf-8")
-                    message = "Vorschau erzeugt."
-                elif action == "upload":
-                    try:
-                        with ftplib.FTP(ftp_host) as ftp:
-                            ftp.login(ftp_user, ftp_password)
-                            if ftp_path:
-                                ftp.cwd(ftp_path)
-                            with ftp.transfercmd(f"STOR {filename}") as conn:
-                                conn.sendall(html.encode("utf-8"))
-                            message = "Upload erfolgreich."
-                    except Exception as exc:  # noqa: BLE001
-                        error = f"FTP-Upload fehlgeschlagen: {exc}"
+            html = render_schedule_html(plan, startlists, variant=variant)
+            if action == "preview":
+                preview_html = base64.b64encode(html.encode("utf-8")).decode("utf-8")
+                message = "Vorschau erzeugt."
+            elif action == "upload":
+                try:
+                    with ftplib.FTP(ftp_host) as ftp:
+                        ftp.login(ftp_user, ftp_password)
+                        if ftp_path:
+                            ftp.cwd(ftp_path)
+                        with ftp.transfercmd(f"STOR {filename}") as conn:
+                            conn.sendall(html.encode("utf-8"))
+                        message = "Upload erfolgreich."
+                except Exception as exc:  # noqa: BLE001
+                    error = f"FTP-Upload fehlgeschlagen: {exc}"
 
     return render_template(
         "publish.html",
@@ -908,6 +993,7 @@ def publish() -> str:
         ftp_password=ftp_password,
         ftp_path=ftp_path,
         filename=filename,
+        variant=variant,
         active_tab="publish",
     )
 

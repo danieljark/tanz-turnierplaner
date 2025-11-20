@@ -34,16 +34,17 @@
   </head>
   <body>
     <header>
-      <h1>{{ plan.event.name or 'Zeitplan' }} – {{ plan.event.ort }}</h1>
-      <div>{{ plan.event.datumVon }}{% if plan.event.datumBis %} – {{ plan.event.datumBis }}{% endif %}</div>
+      <h1>{{ plan.event.name or 'Zeitplan' }}{% if plan.event.ort %} – {{ plan.event.ort }}{% endif %}</h1>
+      <div>{{ plan.event.range_label }}</div>
     </header>
     <div class="container">
       {% for day in plan.days %}
         <section class="panel day">
-          <h2>{{ day.date }}</h2>
+          <h2>{{ day.display_date or day.date }}</h2>
           {% for t in day.tournaments %}
             <article class="tournament" id="t-{{ t.id }}">
               <h3>{{ t.title }}</h3>
+              {% if t.description %}<div class="hint">{{ t.description }}</div>{% endif %}
               <div class="meta">
                 {{ t.start_time }} – {{ t.end_time }} · {{ t.startgruppe }} {{ t.startklasse }} · {{ t.wettbewerbsart }} · {{ t.starters }} Starter
               </div>
@@ -56,16 +57,6 @@
                   </li>
                 {% endfor %}
               </ul>
-              {% if startlists.get(t.id) %}
-                <button class="toggle" data-target="sl-{{ t.id }}">Startliste anzeigen</button>
-                <div class="startlist" id="sl-{{ t.id }}">
-                  <ul>
-                    {% for s in startlists[t.id] %}
-                      <li>{{ s.names }}{% if s.club %} – {{ s.club }}{% endif %}{% if s.ltv %} ({{ s.ltv }}){% endif %}</li>
-                    {% endfor %}
-                  </ul>
-                </div>
-              {% endif %}
             </article>
           {% endfor %}
         </section>

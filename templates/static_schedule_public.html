@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ plan.event.name or 'Zeitplan' }}</title>
+    <style>
+      :root { --accent:#005792; --bg:#f7f8fb; --panel:#fff; --border:#d9d9e2; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:#222; }
+      header { background:var(--accent); color:#fff; padding:1rem 1.2rem; }
+      header h1 { margin:0; font-size:1.3rem; }
+      .container { width:min(1100px,94vw); margin:1rem auto; }
+      .panel { background:var(--panel); border:1px solid var(--border); padding:1rem; border-radius:10px; margin-bottom:1rem; }
+      .tournament { border:1px solid var(--border); border-radius:8px; padding:0.8rem; margin-bottom:0.8rem; background:#fff; }
+      .tournament h3 { margin:0 0 0.2rem 0; font-size:1rem; }
+      .meta { color:#555; font-size:0.9rem; }
+      .blocks { list-style:none; padding:0; margin:0.5rem 0 0 0; }
+      .blocks li { padding:0.3rem 0; border-bottom:1px solid var(--border); }
+      .blocks li:last-child { border-bottom:none; }
+      .badge { display:inline-block; padding:0.1rem 0.4rem; border-radius:6px; background:#eef4ff; color:#2c3e50; font-size:0.8rem; }
+      @media (max-width:640px) { .meta { display:block; } }
+      .startlist ul { margin:0.2rem 0 0 0; padding-left:1rem; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>{{ plan.event.name or 'Zeitplan' }}{% if plan.event.ort %} – {{ plan.event.ort }}{% endif %}</h1>
+      <div>{{ plan.event.range_label }}</div>
+    </header>
+    <div class="container">
+      {% for day in plan.days %}
+        <section class="panel">
+          <h2>{{ day.display_date or day.date }}</h2>
+          {% for t in day.tournaments %}
+            <article class="tournament" id="t-{{ t.id }}">
+              <h3>{{ t.title }}</h3>
+              <div class="meta">{{ t.start_time }} – {{ t.end_time }} · {{ t.startgruppe }} {{ t.startklasse }}</div>
+              <ul class="blocks">
+                <li>{{ t.total_minutes|round(0) }} Min</li>
+              </ul>
+              {% if startlists.get(t.id) %}
+                <button class="toggle" data-target="sl-{{ t.id }}">Startliste einblenden</button>
+                <div class="startlist" id="sl-{{ t.id }}" style="display:none; margin-top:0.4rem;">
+                  <ul>
+                    {% for s in startlists[t.id] %}
+                      <li>{{ s.names }}{% if s.club %} – {{ s.club }}{% endif %}{% if s.ltv %} ({{ s.ltv }}){% endif %}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+              {% endif %}
+            </article>
+          {% endfor %}
+        </section>
+      {% endfor %}
+    </div>
+    <script>
+      document.querySelectorAll('button.toggle').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const id = btn.dataset.target;
+          const el = document.getElementById(id);
+          if (!el) return;
+          const isOpen = el.style.display === 'block';
+          el.style.display = isOpen ? 'none' : 'block';
+          btn.textContent = isOpen ? 'Startliste einblenden' : 'Startliste ausblenden';
+        });
+      });
+    </script>
+  </body>
+</html>
