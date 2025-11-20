@@ -195,6 +195,79 @@ button {
   color: #555;
 }
 
+.block-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0 0;
+}
+
+.block-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 0.4rem;
+  background: #fdfdff;
+}
+
+.block-item input {
+  max-width: 140px;
+}
+
+.block-item .drag-handle {
+  cursor: grab;
+  color: #666;
+}
+
+.block-item .btn-delete {
+  border: none;
+  background: #e74c3c;
+  color: #fff;
+  border-radius: 4px;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+}
+
+.block-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.btn-add {
+  background: #eee;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+}
+
+.time-range {
+  font-size: 0.85rem;
+  color: #444;
+}
+
+.reactivated {
+  color: #c0392b;
+  font-weight: 700;
+  margin-left: 0.4rem;
+}
+
+.app-footer {
+  background: var(--accent);
+  color: #fff;
+  padding: 0.8rem 0;
+}
+
+.app-footer .container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
 .panel-header {
   display: flex;
   align-items: baseline;
