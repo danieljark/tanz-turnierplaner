@@ -613,6 +613,7 @@ def planner() -> str:
             plan_data["plan_id"] = record["id"]
             plan_source = "saved"
             heat_size_val = plan_data.get("heat_size", default_heat_size)
+            event_id = str(record.get("event_id") or "")
         else:
             error = "Gespeicherter Plan wurde nicht gefunden."
 
@@ -643,6 +644,7 @@ def planner() -> str:
                     message = f"Plan gespeichert ({record['id']})."
                     plan_data = record["content"]
                     plan_data["plan_id"] = record["id"]
+                    saved_plans = load_saved_plans()
 
     return render_template(
         "planner.html",

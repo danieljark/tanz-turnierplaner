@@ -4,3 +4,4 @@ settings.json
 dist/
 build/
 *.spec
+plans.json
