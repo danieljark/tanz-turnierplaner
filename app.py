@@ -545,6 +545,8 @@ def build_event_plan(
         scheduled_days.append(
             {
                 "date": date_key,
+                "display_date": format_date_label(date_key),
+                "start_time": day_start_time.strftime("%H:%M"),
                 "tournaments": tournaments,
             }
         )

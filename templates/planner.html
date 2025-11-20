@@ -64,6 +64,7 @@
   {% for day in plan.days %}
     <article class="plan-day" data-day="{{ day.display_date or day.date }}">
       <h4>{{ day.display_date or day.date }}</h4>
+      <label class="day-start-label">Startzeit Tag: <input type="time" class="day-start" value="{{ day.start_time or (day.tournaments[0].start_time if day.tournaments and day.tournaments[0].start_time else '09:00') }}"></label>
       <button type="button" class="btn-add-day">Block (Turnier/Show) hinzufügen</button>
       <table class="tournaments plan-table">
         <thead>
@@ -126,7 +127,7 @@
       <input type="hidden" name="action" value="save_current">
       <input type="hidden" name="plan_id" value="{{ plan.plan_id }}">
       <input type="hidden" name="plan_payload" id="plan-payload">
-      <button type="button" id="save-current">Aktuelle Anordnung speichern</button>
+      <button type="button" id="save-current">Speichern</button>
     </form>
     <p><a href="{{ url_for('planner', plan_id=plan.plan_id, refresh=1) }}">Mit aktuellen API-Daten neu laden</a></p>
   {% endif %}
@@ -144,7 +145,9 @@
   }
   function recalcTournament(listEl) {
     const row = listEl.closest('tr');
-    const startText = listEl.dataset.startTime || listEl.dataset.defaultStart || '09:00';
+    const day = row.closest('.plan-day');
+    const dayDefault = day?.querySelector('.day-start')?.value || '09:00';
+    const startText = listEl.dataset.startTime || listEl.dataset.defaultStart || dayDefault;
     let { hours, minutes } = parseTime(startText);
     let currentMinutes = hours * 60 + minutes;
     let total = 0;
@@ -167,7 +170,8 @@
     row.querySelector('.t-total').textContent = total.toFixed(0);
   }
   function recalcDay(table) {
-    const defaultStart = '09:00';
+    const day = table.closest('.plan-day');
+    const defaultStart = day?.querySelector('.day-start')?.value || '09:00';
     let current = parseTime(defaultStart);
     let currentMinutes = current.hours * 60 + current.minutes;
     table.querySelectorAll('tbody tr').forEach((row) => {
@@ -226,7 +230,22 @@
       }
     });
 
-    document.addEventListener('click', (ev) => {
+    
+    document.addEventListener('change', (ev) => {
+      if (ev.target.classList.contains('day-start')) {
+        const container = ev.target.closest('.plan-day');
+        const table = container.querySelector('.plan-table');
+        const value = ev.target.value || '09:00';
+        container.querySelectorAll('.block-list').forEach((listEl) => {
+          listEl.dataset.defaultStart = value;
+          if (!listEl.dataset.startTime || listEl.dataset.startTime === '') {
+            listEl.dataset.startTime = value;
+          }
+        });
+        recalcDay(table);
+      }
+    });
+document.addEventListener('click', (ev) => {
       if (ev.target.classList.contains('btn-delete')) {
         const listEl = ev.target.closest('.block-list');
         ev.target.closest('.block-item').remove();
@@ -273,7 +292,8 @@
     // add whole-block (as tournament) to a day
     document.querySelectorAll('.btn-add-day').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const table = btn.nextElementSibling;
+        const container = btn.closest('.plan-day');
+        const table = container.querySelector('.plan-table');
         const tbody = table.querySelector('tbody');
         const nowId = `BLOCK-${Date.now()}`;
         const row = document.createElement('tr');
@@ -310,7 +330,10 @@
           </td>
         `;
         tbody.appendChild(row);
-        recalcTournament(row.querySelector('.block-list'));
+        const listEl = row.querySelector('.block-list');
+        const dayStart = container.querySelector('.day-start')?.value || '09:00';
+        listEl.dataset.defaultStart = dayStart;
+        recalcTournament(listEl);
         recalcDay(table);
       });
     });
@@ -321,8 +344,10 @@
         const plan = { days: [] };
         document.querySelectorAll('.plan-day').forEach((dayEl) => {
           const date = dayEl.dataset.day;
-          const dayData = { date, tournaments: [] };
-          dayEl.querySelectorAll('tr').forEach((row) => {
+          const dayStartInput = dayEl.querySelector('.day-start');
+          const dayStartVal = dayStartInput?.value || '09:00';
+          const dayData = { date, start_time: dayStartVal, tournaments: [] };
+          dayEl.querySelectorAll('tbody tr').forEach((row) => {
             const title = row.querySelector('td:nth-child(2) strong')?.textContent?.trim();
             const tId = row.dataset.id || '';
             const blocks = [];
@@ -334,14 +359,19 @@
               });
             });
             const starterInput = row.querySelector('.manual-starters');
-            const startersVal = starterInput ? starterInput.value : (row.querySelector('td:nth-child(3)')?.textContent?.trim() || '');
+            const startersVal = starterInput ? starterInput.value : (row.querySelectorAll('td')[2]?.textContent?.trim() || '');
+            const isCanceled = row.classList.contains('canceled');
+            const hasContent = (title && title.length > 0) || blocks.length > 0;
+            if (!isCanceled && !hasContent) {
+              return;
+            }
             dayData.tournaments.push({
               id: tId,
               title,
               startgruppe: row.dataset.startgruppe || '',
               startklasse: row.dataset.startklasse || '',
               wettbewerbsart: row.dataset.wettbewerbsart || '',
-              canceled: row.classList.contains('canceled'),
+              canceled: isCanceled,
               start_time: row.querySelector('.t-start')?.textContent || '',
               end_time: row.querySelector('.t-end')?.textContent || '',
               total_minutes: parseFloat(row.querySelector('.t-total')?.textContent || '0'),
@@ -350,7 +380,9 @@
               blocks,
             });
           });
-          plan.days.push(dayData);
+          if (dayData.tournaments.length > 0) {
+            plan.days.push(dayData);
+          }
         });
         document.getElementById('plan-payload').value = JSON.stringify(plan);
         saveBtn.closest('form').submit();
