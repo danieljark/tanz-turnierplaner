@@ -174,6 +174,27 @@ button {
   padding: 0;
 }
 
+.warning-list {
+  background: #fff6e5;
+  border: 1px solid #f0c36d;
+  padding: 0.8rem 1rem;
+  border-radius: 8px;
+  list-style: disc;
+  margin: 1rem 0;
+}
+
+.plan-day {
+  margin-bottom: 1.5rem;
+}
+
+.plan-table ul {
+  margin: 0.3rem 0 0 1.2rem;
+}
+
+.plan-table small {
+  color: #555;
+}
+
 .panel-header {
   display: flex;
   align-items: baseline;
