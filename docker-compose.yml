@@ -3,8 +3,6 @@ services:
   zeitplanner:
     build: .
     container_name: zeitplanner
-    ports:
-      - "5492:5000"
     volumes:
       - ./settings.json:/app/settings.json
       - ./plans.json:/app/plans.json
