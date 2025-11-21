@@ -1,0 +1,45 @@
+name: Docker Publish
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to registry
+        env:
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          if [ -z "$REGISTRY_USER" ] || [ -z "$REGISTRY_PASSWORD" ]; then
+            echo "Registry credentials are missing" >&2
+            exit 1
+          fi
+          echo "$REGISTRY_PASSWORD" | docker login docker-registry.solutionshosted.de:443 -u "$REGISTRY_USER" --password-stdin
+
+      - name: Build image
+        run: |
+          IMAGE=docker-registry.solutionshosted.de:443/cc_zeitplanner
+          docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
+
+      - name: Push image
+        run: |
+          IMAGE=docker-registry.solutionshosted.de:443/cc_zeitplanner
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
+
+      - name: Trigger Portainer webhook
+        if: secrets.PORTAINER_WEBHOOK_URL != ''
+        env:
+          PORTAINER_WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
+        run: |
+          curl -fsSL -X POST "$PORTAINER_WEBHOOK_URL"

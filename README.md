@@ -28,14 +28,9 @@
 
 ### Roadmap
 
-1. Löschfunktion für Zeitpläne
-Gespeicherte Zeitpläne sollen gelöscht und umbenannt werden können.
 
 2. User Management per UI
 Pro User sollen individuelle Einstellungen möglich sein, etwa Rundenzeiten, Pausenzeiten oder die ESV-Zugangsdaten.
-
-3. Automatischer Docker-Compose Build und Updates
-Ein automatisierter Build und Update eines Docker-Stacks über GitHub Actions soll eingeführt werden.
 
 4. Hosting des öffentliche und eine interne Zeitplans
 Der Statische Zeitplan soll je eine eigene URL erhalten und gespeichert werden können.
