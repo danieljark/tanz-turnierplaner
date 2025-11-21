@@ -38,7 +38,7 @@ jobs:
           docker push $IMAGE:latest
 
       - name: Trigger Portainer webhook
-        if: secrets.PORTAINER_WEBHOOK_URL != ''
+        if: ${{ secrets.PORTAINER_WEBHOOK_URL != '' }}
         env:
           PORTAINER_WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
         run: |
