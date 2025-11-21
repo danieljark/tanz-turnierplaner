@@ -272,6 +272,19 @@ button {
   opacity: 0.4;
 }
 
+.inline-form {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0 0.3rem;
+}
+
+.inline-form input[type="text"] {
+  width: 160px;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.9rem;
+}
+
 .panel-header {
   display: flex;
   align-items: baseline;

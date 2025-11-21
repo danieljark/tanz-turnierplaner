@@ -563,6 +563,7 @@ def build_event_plan(
         "warnings": warnings,
         "days": scheduled_days,
         "canceled": canceled_list,
+        "plan_name": event_data.get("name") or event_data.get("titel") or f"Veranstaltung {event_data.get('id')}",
     }
     return plan, None
 
@@ -643,6 +644,7 @@ def save_plan_record(plan: Dict[str, Any]) -> Dict[str, Any]:
         "heat_size": plan["heat_size"],
         "cancel_under": plan.get("cancel_under"),
         "cancel_enabled": plan.get("cancel_enabled", True),
+        "plan_name": plan.get("plan_name") or plan["event"]["name"],
         "content": plan,
     }
     plans.append(record)
@@ -703,12 +705,37 @@ def update_plan_record(plan_id: str, plan: Dict[str, Any]) -> Dict[str, Any] | N
             rec["cancel_under"] = plan.get("cancel_under", rec.get("cancel_under"))
             rec["cancel_enabled"] = plan.get("cancel_enabled", rec.get("cancel_enabled"))
             rec["event_name"] = plan.get("event", {}).get("name", rec.get("event_name"))
+            rec["plan_name"] = plan.get("plan_name", rec.get("plan_name", rec.get("event_name")))
             plans[idx] = rec
             updated = rec
             break
     if updated:
         persist_saved_plans(plans)
     return updated
+
+
+def delete_plan_record(plan_id: str) -> bool:
+    plans = load_saved_plans()
+    new_plans = [rec for rec in plans if rec.get("id") != plan_id]
+    if len(new_plans) == len(plans):
+        return False
+    persist_saved_plans(new_plans)
+    return True
+
+
+def rename_plan_record(plan_id: str, new_name: str) -> bool:
+    plans = load_saved_plans()
+    changed = False
+    for rec in plans:
+        if rec.get("id") == plan_id:
+            rec["plan_name"] = new_name
+            if "content" in rec:
+                rec["content"]["plan_name"] = new_name
+            changed = True
+            break
+    if changed:
+        persist_saved_plans(plans)
+    return changed
 
 
 @app.route("/")
@@ -857,11 +884,37 @@ def planner() -> str:
     error = rules_error
     plan_source = None
 
+    if request.method == "POST" and action in {"delete_plan", "rename_plan"}:
+        target_plan_id = request.form.get("plan_id")
+        if not target_plan_id:
+            error = "Plan-ID fehlt."
+        elif action == "delete_plan":
+            if delete_plan_record(target_plan_id):
+                message = "Plan gelöscht."
+                if selected_plan_id == target_plan_id:
+                    selected_plan_id = None
+                    plan_data = None
+            else:
+                error = "Plan konnte nicht gelöscht werden."
+        elif action == "rename_plan":
+            new_name = request.form.get("plan_name", "").strip()
+            if not new_name:
+                error = "Bitte einen Namen für den Plan angeben."
+            elif rename_plan_record(target_plan_id, new_name):
+                message = "Plan umbenannt."
+                if plan_data and plan_data.get("plan_id") == target_plan_id:
+                    plan_data["plan_name"] = new_name
+            else:
+                error = "Plan konnte nicht umbenannt werden."
+        saved_plans = load_saved_plans()
+        action = None
+
     if selected_plan_id:
         record = find_saved_plan(selected_plan_id)
         if record:
             plan_data = record["content"]
             plan_data["plan_id"] = record["id"]
+            plan_data["plan_name"] = record.get("plan_name") or plan_data.get("plan_name") or plan_data["event"].get("name")
             plan_source = "saved"
             heat_size_val = plan_data.get("heat_size", default_heat_size)
             event_id = str(record.get("event_id") or "")
@@ -892,6 +945,7 @@ def planner() -> str:
                 error = "Plan zum Aktualisieren nicht gefunden."
             else:
                 plan = record["content"]
+                plan["plan_name"] = record.get("plan_name") or plan.get("plan_name") or plan["event"].get("name")
                 plan["days"] = payload.get("days", plan.get("days", []))
                 plan["generated_at"] = datetime.utcnow().isoformat()
                 if planner_rules:
