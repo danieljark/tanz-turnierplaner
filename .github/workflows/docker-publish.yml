@@ -8,6 +8,8 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    env:
+      PORTAINER_WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,8 +40,6 @@ jobs:
           docker push $IMAGE:latest
 
       - name: Trigger Portainer webhook
-        if: ${{ secrets.PORTAINER_WEBHOOK_URL != '' }}
-        env:
-          PORTAINER_WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
+        if: ${{ env.PORTAINER_WEBHOOK_URL != '' }}
         run: |
           curl -fsSL -X POST "$PORTAINER_WEBHOOK_URL"
