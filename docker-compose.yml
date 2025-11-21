@@ -11,3 +11,10 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=5000
+    networks:
+      - default
+      - internal_web
+
+networks:
+  internal_web:
+    external: true
