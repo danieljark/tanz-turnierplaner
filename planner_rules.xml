@@ -1,23 +1,25 @@
 <planner>
-  <general defaultHeatSize="6" maxHeatSize="24" breakMinutes="5" gapBetweenTournaments="5" defaultStart="12:00" finalDuration="10" bufferPerHeat="0,5" />
+  <general defaultHeatSize="4" maxHeatSize="6" breakMinutes="10" gapBetweenTournaments="5" defaultStart="10:00" finalDuration="10" bufferPerHeat="0" />
   <roundThresholds>
-    <threshold min="97" rounds="Vorrunde,Zwischenrunde 1,Zwischenrunde 2,Endrunde" nextCounts="48,24,6" crosses="48,24,6" />
-    <threshold min="49" max="96" rounds="Vorrunde,Zwischenrunde,Endrunde" nextCounts="36,24,6" crosses="36,24" />
-    <threshold min="25" max="48" rounds="Vorrunde,Zwischenrunde,Endrunde" nextCounts="18,12,6" crosses="18,12" />
-    <threshold min="13" max="24" rounds="Vorrunde,Zwischenrunde,Endrunde" nextCounts="12,6" crosses="12" />
+    <threshold min="97" rounds="Vorrunde,Zwischenrunde 1,Zwischenrunde 2,Zwischenrunde 3,Zwischenrunde 4,Endrunde" nextCounts="96,48,24,12,6" crosses="96,48,24,12,6" />
+    <threshold min="61" max="96" rounds="Vorrunde,Zwischenrunde 1,Zwischenrunde 2,Zwischenrunde 3,Endrunde" nextCounts="48,24,12,6" crosses="48,24,12,6" />
+    <threshold min="49" max="60" rounds="Vorrunde,Zwischenrunde 1,Zwischenrunde 2,Zwischenrunde 3,Endrunde" nextCounts="36,24,12,6" crosses="36,24,12,6" />
+    <threshold min="31" max="48" rounds="Vorrunde,Zwischenrunde 1,Zwischenrunde 2,Endrunde" nextCounts="24,12,6" crosses="24,12,6" />
+    <threshold min="25" max="30" rounds="Vorrunde,Zwischenrunde 1,Zwischenrunde 2,Endrunde" nextCounts="18,12,6" crosses="18,12,6" />
+    <threshold min="13" max="24" rounds="Vorrunde,Zwischenrunde,Endrunde" nextCounts="12,6" crosses="12,6" />
     <threshold min="7" max="12" rounds="Vorrunde,Endrunde" nextCounts="6" crosses="6" />
     <threshold min="0" max="6" rounds="Endrunde" nextCounts="6" crosses="6" />
   </roundThresholds>
   <danceDurations>
     <dance code="LW" min="1.5" max="2.0" />
     <dance code="TG" min="1.5" max="2.0" />
-    <dance code="WW" min="1.0" max="1.5" />
+    <dance code="WW" min="1.5" max="2.0" />
     <dance code="SF" min="1.5" max="2.0" />
     <dance code="QU" min="1.5" max="2.0" />
     <dance code="SB" min="1.5" max="2.0" />
     <dance code="CC" min="1.5" max="2.0" />
     <dance code="RB" min="1.5" max="2.0" />
-    <dance code="PD" min="2.0" max="2.5" />
+    <dance code="PD" min="1.5" max="2.0" />
     <dance code="JV" min="1.5" max="2.0" />
     <dance code="GL" min="1.0" max="1.5" />
   </danceDurations>

@@ -510,6 +510,7 @@ def build_event_plan(
             "startgruppe": prettify_startgruppe(tournament.get("startgruppe")),
             "startklasse": tournament.get("startklasseLiga"),
             "wettbewerbsart": tournament.get("wettbewerbsart"),
+            "turnierart": tournament.get("turnierart"),
             "starters": starters,
             "rounds": rounds,
             "total_minutes": total_minutes,
@@ -647,6 +648,48 @@ def save_plan_record(plan: Dict[str, Any]) -> Dict[str, Any]:
     plans.append(record)
     persist_saved_plans(plans)
     return record
+
+
+def recompute_plan_entries(
+    plan: Dict[str, Any],
+    rules: Dict[str, Any],
+    heat_size: int,
+    startlists: Dict[str, List[Dict[str, str]]] | None = None,
+) -> None:
+    for day in plan.get("days", []):
+        for entry in day.get("tournaments", []):
+            entry_id = str(entry.get("id") or "")
+            has_blocks = bool(entry.get("blocks"))
+            if entry_id.startswith("BLOCK") or not entry_id.isdigit():
+                # custom block
+                if not has_blocks:
+                    entry["blocks"] = []
+                if startlists is not None:
+                    entry["startlist"] = startlists.get(entry_id, [])
+                continue
+            tournament_stub = {
+                "turnierart": entry.get("turnierart"),
+                "wettbewerbsart": entry.get("wettbewerbsart"),
+                "startklasseLiga": entry.get("startklasse"),
+                "startklasse": entry.get("startklasse"),
+                "startgruppe": entry.get("startgruppe"),
+            }
+            starters = int(entry.get("starters") or 0)
+            rounds, total_minutes, blocks = generate_rounds_for_tournament(
+                tournament_stub,
+                starters,
+                heat_size,
+                rules,
+            )
+            entry["rounds"] = rounds
+            if entry.get("canceled"):
+                entry["blocks"] = []
+                entry["total_minutes"] = 0
+            else:
+                entry["blocks"] = blocks
+                entry["total_minutes"] = total_minutes
+            if startlists is not None:
+                entry["startlist"] = startlists.get(entry_id, [])
 
 
 def update_plan_record(plan_id: str, plan: Dict[str, Any]) -> Dict[str, Any] | None:
@@ -824,20 +867,14 @@ def planner() -> str:
             event_id = str(record.get("event_id") or "")
             cancel_under = plan_data.get("cancel_under", cancel_under)
             cancel_enabled = plan_data.get("cancel_enabled", cancel_enabled)
-            if refresh and not creds_missing and planner_rules:
-                prev_canceled = [c["id"] for c in plan_data.get("canceled", [])]
-                plan_data, plan_error = build_event_plan(
-                    settings,
-                    event_id,
-                    heat_size_val,
-                    cancel_enabled=cancel_enabled,
-                    cancel_under=cancel_under,
-                    previous_canceled=prev_canceled,
-                )
-                if plan_error:
-                    error = plan_error
-                    plan_data = None
-                else:
+            if refresh and not creds_missing:
+                startlist_data, startlist_error = fetch_startlist(settings, event_id)
+                if startlist_error:
+                    error = f"Startliste konnte nicht geladen werden: {startlist_error}"
+                elif planner_rules:
+                    startlists = build_startlists_by_tournament(startlist_data)
+                    plan_heat_size = int(plan_data.get("heat_size", heat_size_val))
+                    recompute_plan_entries(plan_data, planner_rules, plan_heat_size, startlists=startlists)
                     plan_source = "refreshed"
         else:
             error = "Gespeicherter Plan wurde nicht gefunden."
@@ -857,6 +894,9 @@ def planner() -> str:
                 plan = record["content"]
                 plan["days"] = payload.get("days", plan.get("days", []))
                 plan["generated_at"] = datetime.utcnow().isoformat()
+                if planner_rules:
+                    plan_heat_size = int(plan.get("heat_size", heat_size_val))
+                    recompute_plan_entries(plan, planner_rules, plan_heat_size)
                 canceled = []
                 for day in plan["days"]:
                     for t in day.get("tournaments", []):

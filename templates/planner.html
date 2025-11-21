@@ -77,7 +77,7 @@
         </thead>
         <tbody>
           {% for tournament in day.tournaments %}
-            <tr data-id="{{ tournament.id }}" data-startgruppe="{{ tournament.startgruppe }}" data-startklasse="{{ tournament.startklasse }}" data-wettbewerbsart="{{ tournament.wettbewerbsart }}" class="{% if tournament.canceled %}canceled{% endif %}">
+            <tr data-id="{{ tournament.id }}" data-startgruppe="{{ tournament.startgruppe }}" data-startklasse="{{ tournament.startklasse }}" data-wettbewerbsart="{{ tournament.wettbewerbsart }}" data-turnierart="{{ tournament.turnierart }}" class="{% if tournament.canceled %}canceled{% endif %}">
               <td class="time-total">
                 <span class="t-start">{{ tournament.start_time }}</span> – <span class="t-end">{{ tournament.end_time }}</span><br>
                 <small>ca. <span class="t-total">{{ tournament.total_minutes|round(0) }}</span> Min.</small>
@@ -129,7 +129,7 @@
       <input type="hidden" name="plan_payload" id="plan-payload">
       <button type="button" id="save-current">Speichern</button>
     </form>
-    <p><a href="{{ url_for('planner', plan_id=plan.plan_id, refresh=1) }}">Mit aktuellen API-Daten neu laden</a></p>
+    <p><a href="{{ url_for('planner', plan_id=plan.plan_id, refresh=1) }}">Daten via ESV aktualisieren</a></p>
   {% endif %}
 </section>
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
@@ -301,6 +301,7 @@ document.addEventListener('click', (ev) => {
         row.dataset.startgruppe = '';
         row.dataset.startklasse = '';
         row.dataset.wettbewerbsart = '';
+        row.dataset.turnierart = '';
         row.innerHTML = `
           <td class="time-total">
             <span class="t-start">--:--</span> – <span class="t-end">--:--</span><br>
@@ -371,6 +372,7 @@ document.addEventListener('click', (ev) => {
               startgruppe: row.dataset.startgruppe || '',
               startklasse: row.dataset.startklasse || '',
               wettbewerbsart: row.dataset.wettbewerbsart || '',
+              turnierart: row.dataset.turnierart || '',
               canceled: isCanceled,
               start_time: row.querySelector('.t-start')?.textContent || '',
               end_time: row.querySelector('.t-end')?.textContent || '',
