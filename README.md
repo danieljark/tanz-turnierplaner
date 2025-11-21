@@ -47,3 +47,5 @@ Verschiebungen sollen nachfolgende Turniere automatisch berücksichtigen und ein
 
 6. Individuelle Endpoints für dynamische Ansichten
 Pro Zeitplan sollen eigene Endpoints bereitgestellt werden, damit mehrere Live-Ansichten parallel im selben System möglich sind.
+
+### Docker Compose
