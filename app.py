@@ -35,6 +35,18 @@ PLANNER_RULES_PATH = BASE_DIR / "planner_rules.xml"
 USERS_FILE = Path("users.json")
 
 
+def _resolve_path(path: Path, filename: str | None = None) -> Path:
+    target = path
+    if target.exists() and target.is_dir():
+        if filename:
+            target = target / filename
+        else:
+            target = target / path.name
+    if target.parent:
+        target.parent.mkdir(parents=True, exist_ok=True)
+    return target
+
+
 def _user_store_path() -> Path:
     path = USERS_FILE
     if path.exists() and path.is_dir():
@@ -103,7 +115,7 @@ def load_settings() -> Settings:
 
 
 def load_users() -> Dict[str, str]:
-    path = _user_store_path()
+    path = _resolve_path(USERS_FILE, "users.json")
     if not path.exists():
         return {}
     try:
@@ -113,7 +125,7 @@ def load_users() -> Dict[str, str]:
 
 
 def save_users(users: Dict[str, str]) -> None:
-    path = _user_store_path()
+    path = _resolve_path(USERS_FILE, "users.json")
     path.write_text(json.dumps(users, indent=2), encoding="utf-8")
 
 
