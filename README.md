@@ -21,7 +21,7 @@
 3. Im Browser `http://localhost:5000` (oder den im Terminal angezeigten Port) öffnen.
 
 
-####  Das Web-UI ist jetzt login-pflichtig. Benutzer werden in `users.json` gespeichert.
+####  Das Web-UI ist jetzt hat einen LOGIN. Benutzer werden in `users.json` gespeichert.
 
 ### Screenshot
 ![alt text](image.png)

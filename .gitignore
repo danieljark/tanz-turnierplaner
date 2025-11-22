@@ -6,3 +6,4 @@ build/
 *.spec
 plans.json
 users.json
+data/

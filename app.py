@@ -29,22 +29,12 @@ ACCEPT_FUNCTIONARIES = "application/vnd.tanzsport.esv.v1.funktionaere.l2+json"
 ACCEPT_STARTLIST_LEVEL1 = "application/vnd.tanzsport.esv.v1.startliste.l1+json"
 REQUEST_TIMEOUT = 20
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
-SETTINGS_FILE = Path("settings.json")
-PLANS_FILE = Path("plans.json")
+DATA_DIR = Path(os.environ.get("DATA_DIR", ".")).resolve()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+SETTINGS_FILE = DATA_DIR / "settings.json"
+PLANS_FILE = DATA_DIR / "plans.json"
 PLANNER_RULES_PATH = BASE_DIR / "planner_rules.xml"
-USERS_FILE = Path("users.json")
-
-
-def _resolve_path(path: Path, filename: str | None = None) -> Path:
-    target = path
-    if target.exists() and target.is_dir():
-        if filename:
-            target = target / filename
-        else:
-            target = target / path.name
-    if target.parent:
-        target.parent.mkdir(parents=True, exist_ok=True)
-    return target
+USERS_FILE = DATA_DIR / "users.json"
 
 
 def _user_store_path() -> Path:
@@ -101,8 +91,6 @@ def default_settings() -> Settings:
 
 def load_settings() -> Settings:
     path = SETTINGS_FILE
-    if path.exists() and path.is_dir():
-        path = path / "settings.json"
     if not path.exists():
         return default_settings()
     try:
@@ -115,18 +103,17 @@ def load_settings() -> Settings:
 
 
 def load_users() -> Dict[str, str]:
-    path = _resolve_path(USERS_FILE, "users.json")
-    if not path.exists():
+    if not USERS_FILE.exists():
         return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(USERS_FILE.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
 
 
 def save_users(users: Dict[str, str]) -> None:
-    path = _resolve_path(USERS_FILE, "users.json")
-    path.write_text(json.dumps(users, indent=2), encoding="utf-8")
+    USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    USERS_FILE.write_text(json.dumps(users, indent=2), encoding="utf-8")
 
 
 def add_user(username: str, password: str) -> bool:
@@ -170,11 +157,7 @@ def login_required(view):
 
 
 def save_settings(settings: Settings) -> None:
-    path = SETTINGS_FILE
-    if path.exists() and path.is_dir():
-        path = path / "settings.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(asdict(settings), indent=2), encoding="utf-8")
+    SETTINGS_FILE.write_text(json.dumps(asdict(settings), indent=2), encoding="utf-8")
 
 
 def missing_credentials(settings: Settings) -> bool:
@@ -254,11 +237,8 @@ def load_saved_plans() -> List[Dict[str, Any]]:
 
 
 def persist_saved_plans(plans: List[Dict[str, Any]]) -> None:
-    path = PLANS_FILE
-    if path.exists() and path.is_dir():
-        path = path / "plans.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(plans, indent=2, ensure_ascii=False), encoding="utf-8")
+    PLANS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PLANS_FILE.write_text(json.dumps(plans, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def find_saved_plan(plan_id: str) -> Dict[str, Any] | None:
