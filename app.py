@@ -254,7 +254,11 @@ def load_saved_plans() -> List[Dict[str, Any]]:
 
 
 def persist_saved_plans(plans: List[Dict[str, Any]]) -> None:
-    PLANS_FILE.write_text(json.dumps(plans, indent=2, ensure_ascii=False), encoding="utf-8")
+    path = PLANS_FILE
+    if path.exists() and path.is_dir():
+        path = path / "plans.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(plans, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def find_saved_plan(plan_id: str) -> Dict[str, Any] | None:
