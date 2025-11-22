@@ -88,10 +88,13 @@ def default_settings() -> Settings:
 
 
 def load_settings() -> Settings:
-    if not SETTINGS_FILE.exists():
+    path = SETTINGS_FILE
+    if path.exists() and path.is_dir():
+        path = path / "settings.json"
+    if not path.exists():
         return default_settings()
     try:
-        data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return default_settings()
     merged = default_settings().__dict__
@@ -155,7 +158,11 @@ def login_required(view):
 
 
 def save_settings(settings: Settings) -> None:
-    SETTINGS_FILE.write_text(json.dumps(asdict(settings), indent=2), encoding="utf-8")
+    path = SETTINGS_FILE
+    if path.exists() and path.is_dir():
+        path = path / "settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(asdict(settings), indent=2), encoding="utf-8")
 
 
 def missing_credentials(settings: Settings) -> bool:
