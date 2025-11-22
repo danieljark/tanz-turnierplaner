@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h2>Benutzerverwaltung</h2>
+  {% if error %}
+    <p class="error">{{ error }}</p>
+  {% endif %}
+  {% if message %}
+    <p class="success">{{ message }}</p>
+  {% endif %}
+  <h3>Benutzer anlegen</h3>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="action" value="create">
+    <label>
+      Benutzername
+      <input type="text" name="username" required>
+    </label>
+    <label>
+      Passwort
+      <input type="password" name="password" required>
+    </label>
+    <div class="form-actions">
+      <button type="submit">Anlegen</button>
+    </div>
+  </form>
+</section>
+<section class="panel">
+  <h3>Vorhandene Benutzer</h3>
+  {% if users %}
+    <table class="tournaments plan-table">
+      <thead>
+        <tr><th>Benutzername</th><th>Aktion</th></tr>
+      </thead>
+      <tbody>
+        {% for username in users.keys() %}
+          <tr>
+            <td>{{ username }}</td>
+            <td>
+              <form method="post" onsubmit="return confirm('Benutzer {{ username }} löschen?');">
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="username" value="{{ username }}">
+                <button type="submit">Löschen</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>Keine Benutzer vorhanden.</p>
+  {% endif %}
+</section>
+{% endblock %}

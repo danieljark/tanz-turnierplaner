@@ -21,6 +21,8 @@
 3. Im Browser `http://localhost:5000` (oder den im Terminal angezeigten Port) öffnen.
 
 
+####  Das Web-UI ist jetzt login-pflichtig. Benutzer werden in `users.json` gespeichert.
+
 ### Screenshot
 ![alt text](image.png)
 
@@ -29,8 +31,7 @@
 ### Roadmap
 
 
-2. User Management per UI
-Pro User sollen individuelle Einstellungen möglich sein, etwa Rundenzeiten, Pausenzeiten oder die ESV-Zugangsdaten.
+2. Pro User sollen individuelle Einstellungen möglich sein, etwa Rundenzeiten, Pausenzeiten oder die ESV-Zugangsdaten.
 
 4. Hosting des öffentliche und eine interne Zeitplans
 Der Statische Zeitplan soll je eine eigene URL erhalten und gespeichert werden können.

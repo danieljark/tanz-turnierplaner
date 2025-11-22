@@ -16,6 +16,15 @@
           <a href="{{ url_for('publish') }}" class="{% if active_tab == 'publish' %}active{% endif %}">Veröffentlichen</a>
           <a href="{{ url_for('functionaries') }}" class="{% if active_tab == 'functionaries' %}active{% endif %}">Funktionäre</a>
           <a href="{{ url_for('settings_view') }}" class="{% if active_tab == 'settings' %}active{% endif %}">Einstellungen</a>
+          {% if current_user %}
+            <a href="{{ url_for('manage_users') }}" class="{% if active_tab == 'users' %}active{% endif %}">Benutzer</a>
+          {% endif %}
+          {% if current_user %}
+            <span class="user-info">Eingeloggt als {{ current_user }}</span>
+            <a href="{{ url_for('logout') }}">Logout</a>
+          {% else %}
+            <a href="{{ url_for('login') }}">Login</a>
+          {% endif %}
         </nav>
       </div>
     </header>

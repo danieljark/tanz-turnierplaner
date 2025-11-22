@@ -11,12 +11,13 @@ import time
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, time as time_cls
-from functools import lru_cache
+from functools import lru_cache, wraps
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import requests
-from flask import Flask, Response, redirect, render_template, request, url_for
+from flask import Flask, Response, redirect, render_template, request, url_for, session
+from werkzeug.security import generate_password_hash, check_password_hash
 from requests.auth import HTTPBasicAuth
 
 DEFAULT_BASE_URL = "https://ev.tanzsport-portal.de/api/v1"
@@ -31,6 +32,7 @@ BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 SETTINGS_FILE = Path("settings.json")
 PLANS_FILE = Path("plans.json")
 PLANNER_RULES_PATH = BASE_DIR / "planner_rules.xml"
+USERS_FILE = Path("users.json")
 
 app = Flask(
     __name__,
@@ -42,7 +44,10 @@ app.secret_key = os.environ.get("ESV_UI_SECRET", "dev-secret-key")
 
 @app.context_processor
 def inject_now() -> Dict[str, Any]:
-    return {"current_year": datetime.utcnow().year}
+    return {
+        "current_year": datetime.utcnow().year,
+        "current_user": session.get("user"),
+    }
 
 
 @dataclass
@@ -84,6 +89,59 @@ def load_settings() -> Settings:
     merged = default_settings().__dict__
     merged.update({k: v for k, v in data.items() if k in merged})
     return Settings(**merged)
+
+
+def load_users() -> Dict[str, str]:
+    if not USERS_FILE.exists():
+        return {}
+    try:
+        return json.loads(USERS_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_users(users: Dict[str, str]) -> None:
+    USERS_FILE.write_text(json.dumps(users, indent=2), encoding="utf-8")
+
+
+def add_user(username: str, password: str) -> bool:
+    username = username.strip()
+    if not username or not password:
+        return False
+    users = load_users()
+    if username in users:
+        return False
+    users[username] = generate_password_hash(password)
+    save_users(users)
+    return True
+
+
+def delete_user_record(username: str) -> bool:
+    users = load_users()
+    if username not in users:
+        return False
+    del users[username]
+    save_users(users)
+    return True
+
+
+def verify_user(username: str, password: str) -> bool:
+    users = load_users()
+    stored = users.get(username)
+    if not stored:
+        return False
+    return check_password_hash(stored, password)
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        if not session.get("user"):
+            next_url = request.path if request.method == "GET" else url_for("events")
+            return redirect(url_for("login", next=next_url))
+        return view(*args, **kwargs)
+
+    return wrapped
 
 
 def save_settings(settings: Settings) -> None:
@@ -739,11 +797,78 @@ def rename_plan_record(plan_id: str, new_name: str) -> bool:
 
 
 @app.route("/")
+@login_required
 def root() -> Any:
     return redirect(url_for("events"))
 
 
+@app.route("/login", methods=["GET", "POST"])
+def login() -> Any:
+    users = load_users()
+    no_users = len(users) == 0
+    error = None
+    message = None
+    next_url = request.args.get("next") or url_for("events")
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        action = request.form.get("action")
+        if not username or not password:
+            error = "Bitte Benutzername und Passwort angeben."
+        elif no_users or action == "register":
+            if add_user(username, password):
+                session["user"] = username
+                return redirect(next_url)
+            error = "Benutzer konnte nicht angelegt werden (Name evtl. bereits vergeben)."
+        else:
+            if verify_user(username, password):
+                session["user"] = username
+                return redirect(next_url)
+            error = "Login fehlgeschlagen."
+    return render_template("login.html", error=error, message=message, no_users=no_users)
+
+
+@app.route("/logout")
+@login_required
+def logout() -> Any:
+    session.pop("user", None)
+    return redirect(url_for("login"))
+
+
+@app.route("/admin/users", methods=["GET", "POST"])
+@login_required
+def manage_users() -> Any:
+    users = load_users()
+    message = None
+    error = None
+    if request.method == "POST":
+        action = request.form.get("action")
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        if action == "create":
+            if add_user(username, password):
+                message = "Benutzer angelegt."
+            else:
+                error = "Benutzer konnte nicht angelegt werden."
+        elif action == "delete":
+            if username == session.get("user"):
+                error = "Eigener Benutzer kann nicht gelöscht werden."
+            elif delete_user_record(username):
+                message = "Benutzer gelöscht."
+            else:
+                error = "Benutzer wurde nicht gefunden."
+        users = load_users()
+    return render_template(
+        "manage_users.html",
+        users=users,
+        message=message,
+        error=error,
+        active_tab="users",
+    )
+
+
 @app.route("/settings", methods=["GET", "POST"])
+@login_required
 def settings_view() -> str:
     settings = load_settings()
     message = None
@@ -778,6 +903,7 @@ def settings_view() -> str:
 
 
 @app.route("/events")
+@login_required
 def events() -> str:
     settings = load_settings()
     event_id = request.args.get("event_id", "").strip()
@@ -806,6 +932,7 @@ def events() -> str:
 
 
 @app.route("/events/<event_id>")
+@login_required
 def event_detail(event_id: str) -> str:
     settings = load_settings()
     if missing_credentials(settings):
@@ -824,6 +951,7 @@ def event_detail(event_id: str) -> str:
 
 
 @app.route("/functionaries")
+@login_required
 def functionaries() -> str:
     settings = load_settings()
     query = request.args.get("q", "").strip()
@@ -860,6 +988,7 @@ def functionaries() -> str:
 
 
 @app.route("/planner", methods=["GET", "POST"])
+@login_required
 def planner() -> str:
     settings = load_settings()
     creds_missing = missing_credentials(settings)
@@ -1025,6 +1154,7 @@ def planner() -> str:
 
 
 @app.route("/publish", methods=["GET", "POST"])
+@login_required
 def publish() -> str:
     settings = load_settings()
     saved_plans = load_saved_plans()
@@ -1091,6 +1221,7 @@ def publish() -> str:
 
 
 @app.route("/planner/export/<plan_id>")
+@login_required
 def planner_export(plan_id: str) -> Response:
     record = find_saved_plan(plan_id)
     if not record:

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h2>{% if no_users %}Ersten Benutzer anlegen{% else %}Anmeldung{% endif %}</h2>
+  {% if error %}
+    <p class="error">{{ error }}</p>
+  {% endif %}
+  {% if message %}
+    <p class="success">{{ message }}</p>
+  {% endif %}
+  <form method="post" class="form-grid">
+    <label>
+      Benutzername
+      <input type="text" name="username" required>
+    </label>
+    <label>
+      Passwort
+      <input type="password" name="password" required>
+    </label>
+    <div class="form-actions">
+      {% if no_users %}
+        <button type="submit" name="action" value="register">Benutzer anlegen</button>
+      {% else %}
+        <button type="submit">Anmelden</button>
+      {% endif %}
+    </div>
+  </form>
+  {% if not no_users %}
+    <p class="hint">Noch kein Zugang? Bitte wende dich an einen Administrator.</p>
+  {% endif %}
+</section>
+{% endblock %}

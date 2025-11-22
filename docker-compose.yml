@@ -6,6 +6,7 @@ services:
     volumes:
       - ./settings.json:/app/settings.json
       - ./plans.json:/app/plans.json
+      - ./users.json:/app/users.json
     environment:
       - HOST=0.0.0.0
       - PORT=5000
