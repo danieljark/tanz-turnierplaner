@@ -15,8 +15,8 @@
           <a href="{{ url_for('planner') }}" class="{% if active_tab == 'planner' %}active{% endif %}">Planer</a>
           <a href="{{ url_for('publish') }}" class="{% if active_tab == 'publish' %}active{% endif %}">Veröffentlichen</a>
           <a href="{{ url_for('functionaries') }}" class="{% if active_tab == 'functionaries' %}active{% endif %}">Funktionäre</a>
-          <a href="{{ url_for('settings_view') }}" class="{% if active_tab == 'settings' %}active{% endif %}">Einstellungen</a>
-          {% if current_user %}
+          {% if current_role == 'admin' %}
+            <a href="{{ url_for('settings_view') }}" class="{% if active_tab == 'settings' %}active{% endif %}">Einstellungen</a>
             <a href="{{ url_for('manage_users') }}" class="{% if active_tab == 'users' %}active{% endif %}">Benutzer</a>
           {% endif %}
           {% if current_user %}

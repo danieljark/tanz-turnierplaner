@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import requests
-from flask import Flask, Response, redirect, render_template, request, url_for, session
+from flask import Flask, Response, redirect, render_template, request, url_for, session, abort
 from werkzeug.security import generate_password_hash, check_password_hash
 from requests.auth import HTTPBasicAuth
 
@@ -35,6 +35,8 @@ SETTINGS_FILE = DATA_DIR / "settings.json"
 PLANS_FILE = DATA_DIR / "plans.json"
 PLANNER_RULES_PATH = BASE_DIR / "planner_rules.xml"
 USERS_FILE = DATA_DIR / "users.json"
+ROLE_ADMIN = "admin"
+ROLE_USER = "user"
 
 
 def _user_store_path() -> Path:
@@ -57,6 +59,7 @@ def inject_now() -> Dict[str, Any]:
     return {
         "current_year": datetime.utcnow().year,
         "current_user": session.get("user"),
+        "current_role": session.get("role"),
     }
 
 
@@ -102,28 +105,56 @@ def load_settings() -> Settings:
     return Settings(**merged)
 
 
-def load_users() -> Dict[str, str]:
-    if not USERS_FILE.exists():
+def _normalize_users(raw: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
+    normalized: Dict[str, Dict[str, str]] = {}
+    for username, data in raw.items():
+        if isinstance(data, str):
+            normalized[username] = {"password": data, "role": ROLE_ADMIN}
+            continue
+        if not isinstance(data, dict):
+            continue
+        password_hash = data.get("password") or data.get("hash") or ""
+        if not password_hash:
+            continue
+        role = data.get("role")
+        if role not in {ROLE_ADMIN, ROLE_USER}:
+            role = ROLE_USER
+        normalized[username] = {"password": password_hash, "role": role}
+    return normalized
+
+
+def load_users() -> Dict[str, Dict[str, str]]:
+    path = _user_store_path()
+    if not path.exists():
         return {}
     try:
-        return json.loads(USERS_FILE.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
+    if not isinstance(raw, dict):
+        return {}
+    return _normalize_users(raw)
 
 
-def save_users(users: Dict[str, str]) -> None:
-    USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    USERS_FILE.write_text(json.dumps(users, indent=2), encoding="utf-8")
+def save_users(users: Dict[str, Dict[str, str]]) -> None:
+    path = _user_store_path()
+    path.write_text(json.dumps(users, indent=2), encoding="utf-8")
 
 
-def add_user(username: str, password: str) -> bool:
+def add_user(username: str, password: str, role: str | None = None) -> bool:
     username = username.strip()
     if not username or not password:
         return False
     users = load_users()
+    normalized_role = role if role in {ROLE_ADMIN, ROLE_USER} else ROLE_USER
+    if not users:
+        normalized_role = ROLE_ADMIN
     if username in users:
         return False
-    users[username] = generate_password_hash(password, method="pbkdf2:sha256", salt_length=16)
+    users[username] = {
+        "password": generate_password_hash(password, method="pbkdf2:sha256", salt_length=16),
+        "role": normalized_role,
+    }
     save_users(users)
     return True
 
@@ -132,6 +163,11 @@ def delete_user_record(username: str) -> bool:
     users = load_users()
     if username not in users:
         return False
+    target_role = users[username].get("role", ROLE_USER)
+    if target_role == ROLE_ADMIN:
+        remaining_admins = sum(1 for user in users.values() if user.get("role") == ROLE_ADMIN)
+        if remaining_admins <= 1:
+            return False
     del users[username]
     save_users(users)
     return True
@@ -139,10 +175,41 @@ def delete_user_record(username: str) -> bool:
 
 def verify_user(username: str, password: str) -> bool:
     users = load_users()
-    stored = users.get(username)
-    if not stored:
+    record = users.get(username)
+    if not record:
         return False
-    return check_password_hash(stored, password)
+    stored_hash = record.get("password")
+    if not stored_hash:
+        return False
+    return check_password_hash(stored_hash, password)
+
+
+def update_user_role(username: str, role: str) -> bool:
+    if role not in {ROLE_ADMIN, ROLE_USER}:
+        return False
+    users = load_users()
+    if username not in users:
+        return False
+    current_role = users[username].get("role", ROLE_USER)
+    if current_role == role:
+        return True
+    if current_role == ROLE_ADMIN and role != ROLE_ADMIN:
+        remaining_admins = sum(1 for user in users.values() if user.get("role") == ROLE_ADMIN)
+        if remaining_admins <= 1:
+            return False
+    users[username]["role"] = role
+    save_users(users)
+    return True
+
+
+def set_logged_in_user(username: str) -> None:
+    record = load_users().get(username, {})
+    session["user"] = username
+    session["role"] = record.get("role", ROLE_USER)
+
+
+def current_user_role() -> str | None:
+    return session.get("role")
 
 
 def login_required(view):
@@ -151,6 +218,19 @@ def login_required(view):
         if not session.get("user"):
             next_url = request.path if request.method == "GET" else url_for("events")
             return redirect(url_for("login", next=next_url))
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def admin_required(view):
+    @wraps(view)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        if not session.get("user"):
+            next_url = request.path if request.method == "GET" else url_for("events")
+            return redirect(url_for("login", next=next_url))
+        if session.get("role") != ROLE_ADMIN:
+            abort(403)
         return view(*args, **kwargs)
 
     return wrapped
@@ -433,12 +513,14 @@ def generate_rounds_for_tournament(
     starters: int,
     heat_size: int,
     rules: Dict[str, Any],
+    use_general_look: bool = False,
 ) -> Tuple[List[Dict[str, Any]], float, List[Dict[str, Any]]]:
     heat_size = max(1, heat_size)
     thresholds = rules["thresholds"]
     general = rules["general"]
-    rule = determine_round_rule(max(starters, 0), thresholds)
-    counts = [max(starters, 0)]
+    starters_clamped = max(starters, 0)
+    rule = determine_round_rule(starters_clamped, thresholds)
+    counts = [starters_clamped]
     for target in rule["next_counts"]:
         counts.append(min(target, counts[-1]) if counts[-1] else target)
     while len(counts) < len(rule["rounds"]):
@@ -506,6 +588,16 @@ def generate_rounds_for_tournament(
     for block in block_iter:
         combined_blocks.append(block)
 
+    if use_general_look and starters_clamped <= 6:
+        gl_minutes = max(1, math.ceil(len(dances) * 1.0))
+        general_look_block = {
+            "type": "general_look",
+            "label": "General Look",
+            "minutes": gl_minutes,
+            "dances": dances,
+        }
+        combined_blocks.insert(0, general_look_block)
+
     # recalc total from combined_blocks
     total_minutes = sum(float(b.get("minutes", 0)) for b in combined_blocks)
 
@@ -519,6 +611,7 @@ def build_event_plan(
     cancel_enabled: bool = True,
     cancel_under: int = 4,
     previous_canceled: List[str] | None = None,
+    general_look: bool = False,
 ) -> Tuple[Dict[str, Any] | None, str | None]:
     rules = load_planner_rules()
     heat_size = max(1, min(heat_size, rules["general"]["max_heat_size"]))
@@ -569,7 +662,13 @@ def build_event_plan(
                     "reason": f"Abgesagt (< {cancel_under} Starter)",
                 }
             )
-        rounds, total_minutes, blocks = generate_rounds_for_tournament(tournament, starters, heat_size, rules)
+        rounds, total_minutes, blocks = generate_rounds_for_tournament(
+            tournament,
+            starters,
+            heat_size,
+            rules,
+            use_general_look=general_look,
+        )
         if canceled_flag:
             blocks = []
             total_minutes = 0
@@ -635,6 +734,7 @@ def build_event_plan(
         "days": scheduled_days,
         "canceled": canceled_list,
         "plan_name": event_data.get("name") or event_data.get("titel") or f"Veranstaltung {event_data.get('id')}",
+        "general_look": general_look,
     }
     return plan, None
 
@@ -715,6 +815,7 @@ def save_plan_record(plan: Dict[str, Any]) -> Dict[str, Any]:
         "heat_size": plan["heat_size"],
         "cancel_under": plan.get("cancel_under"),
         "cancel_enabled": plan.get("cancel_enabled", True),
+        "general_look": plan.get("general_look", False),
         "plan_name": plan.get("plan_name") or plan["event"]["name"],
         "content": plan,
     }
@@ -727,8 +828,10 @@ def recompute_plan_entries(
     plan: Dict[str, Any],
     rules: Dict[str, Any],
     heat_size: int,
+    use_general_look: bool = False,
     startlists: Dict[str, List[Dict[str, str]]] | None = None,
 ) -> None:
+    effective_general_look = use_general_look or plan.get("general_look", False)
     for day in plan.get("days", []):
         for entry in day.get("tournaments", []):
             entry_id = str(entry.get("id") or "")
@@ -753,6 +856,7 @@ def recompute_plan_entries(
                 starters,
                 heat_size,
                 rules,
+                use_general_look=effective_general_look,
             )
             entry["rounds"] = rounds
             if entry.get("canceled"):
@@ -775,6 +879,7 @@ def update_plan_record(plan_id: str, plan: Dict[str, Any]) -> Dict[str, Any] | N
             rec["heat_size"] = plan.get("heat_size", rec.get("heat_size"))
             rec["cancel_under"] = plan.get("cancel_under", rec.get("cancel_under"))
             rec["cancel_enabled"] = plan.get("cancel_enabled", rec.get("cancel_enabled"))
+            rec["general_look"] = plan.get("general_look", rec.get("general_look", False))
             rec["event_name"] = plan.get("event", {}).get("name", rec.get("event_name"))
             rec["plan_name"] = plan.get("plan_name", rec.get("plan_name", rec.get("event_name")))
             plans[idx] = rec
@@ -829,13 +934,14 @@ def login() -> Any:
         if not username or not password:
             error = "Bitte Benutzername und Passwort angeben."
         elif no_users or action == "register":
-            if add_user(username, password):
-                session["user"] = username
+            role = ROLE_ADMIN if no_users else ROLE_USER
+            if add_user(username, password, role=role):
+                set_logged_in_user(username)
                 return redirect(next_url)
             error = "Benutzer konnte nicht angelegt werden (Name evtl. bereits vergeben)."
         else:
             if verify_user(username, password):
-                session["user"] = username
+                set_logged_in_user(username)
                 return redirect(next_url)
             error = "Login fehlgeschlagen."
     return render_template("login.html", error=error, message=message, no_users=no_users)
@@ -845,11 +951,12 @@ def login() -> Any:
 @login_required
 def logout() -> Any:
     session.pop("user", None)
+    session.pop("role", None)
     return redirect(url_for("login"))
 
 
 @app.route("/admin/users", methods=["GET", "POST"])
-@login_required
+@admin_required
 def manage_users() -> Any:
     users = load_users()
     message = None
@@ -859,7 +966,8 @@ def manage_users() -> Any:
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         if action == "create":
-            if add_user(username, password):
+            role = request.form.get("role", ROLE_USER)
+            if add_user(username, password, role=role):
                 message = "Benutzer angelegt."
             else:
                 error = "Benutzer konnte nicht angelegt werden."
@@ -869,7 +977,13 @@ def manage_users() -> Any:
             elif delete_user_record(username):
                 message = "Benutzer gelöscht."
             else:
-                error = "Benutzer wurde nicht gefunden."
+                error = "Benutzer konnte nicht gelöscht werden (evtl. letzter Admin oder nicht gefunden)."
+        elif action == "role":
+            role = request.form.get("role", ROLE_USER)
+            if update_user_role(username, role):
+                message = "Rolle aktualisiert."
+            else:
+                error = "Rolle konnte nicht aktualisiert werden."
         users = load_users()
     return render_template(
         "manage_users.html",
@@ -881,7 +995,7 @@ def manage_users() -> Any:
 
 
 @app.route("/settings", methods=["GET", "POST"])
-@login_required
+@admin_required
 def settings_view() -> str:
     settings = load_settings()
     message = None
@@ -1025,6 +1139,7 @@ def planner() -> str:
     message = None
     error = rules_error
     plan_source = None
+    general_look_flag = False
 
     if request.method == "POST" and action in {"delete_plan", "rename_plan"}:
         target_plan_id = request.form.get("plan_id")
@@ -1062,6 +1177,7 @@ def planner() -> str:
             event_id = str(record.get("event_id") or "")
             cancel_under = plan_data.get("cancel_under", cancel_under)
             cancel_enabled = plan_data.get("cancel_enabled", cancel_enabled)
+            general_look_flag = plan_data.get("general_look", general_look_flag)
             if refresh and not creds_missing:
                 startlist_data, startlist_error = fetch_startlist(settings, event_id)
                 if startlist_error:
@@ -1069,7 +1185,13 @@ def planner() -> str:
                 elif planner_rules:
                     startlists = build_startlists_by_tournament(startlist_data)
                     plan_heat_size = int(plan_data.get("heat_size", heat_size_val))
-                    recompute_plan_entries(plan_data, planner_rules, plan_heat_size, startlists=startlists)
+                    recompute_plan_entries(
+                        plan_data,
+                        planner_rules,
+                        plan_heat_size,
+                        use_general_look=plan_data.get("general_look", False),
+                        startlists=startlists,
+                    )
                     plan_source = "refreshed"
         else:
             error = "Gespeicherter Plan wurde nicht gefunden."
@@ -1092,7 +1214,12 @@ def planner() -> str:
                 plan["generated_at"] = datetime.utcnow().isoformat()
                 if planner_rules:
                     plan_heat_size = int(plan.get("heat_size", heat_size_val))
-                    recompute_plan_entries(plan, planner_rules, plan_heat_size)
+                    recompute_plan_entries(
+                        plan,
+                        planner_rules,
+                        plan_heat_size,
+                        use_general_look=plan.get("general_look", False),
+                    )
                 canceled = []
                 for day in plan["days"]:
                     for t in day.get("tournaments", []):
@@ -1104,6 +1231,7 @@ def planner() -> str:
                     message = "Plan aktualisiert."
                     plan_data = updated["content"]
                     plan_data["plan_id"] = updated["id"]
+                    general_look_flag = plan_data.get("general_look", general_look_flag)
                 else:
                     error = "Plan konnte nicht aktualisiert werden."
 
@@ -1119,6 +1247,7 @@ def planner() -> str:
         except ValueError:
             cancel_under = 4
         cancel_enabled = request.form.get("cancel_enabled") == "on"
+        general_look_flag = request.form.get("general_look") == "on"
         if planner_rules:
             heat_size_val = max(1, min(heat_size_val, planner_rules["general"]["max_heat_size"]))
         if not event_id:
@@ -1135,17 +1264,20 @@ def planner() -> str:
                 cancel_enabled=cancel_enabled,
                 cancel_under=cancel_under,
                 previous_canceled=None,
+                general_look=general_look_flag,
             )
             if plan_error:
                 error = plan_error
                 plan_data = None
             else:
                 plan_source = "generated"
+                general_look_flag = plan_data.get("general_look", general_look_flag)
                 if action == "save":
                     record = save_plan_record(plan_data)
                     message = f"Plan gespeichert ({record['id']})."
                     plan_data = record["content"]
                     plan_data["plan_id"] = record["id"]
+                    general_look_flag = plan_data.get("general_look", general_look_flag)
                     saved_plans = load_saved_plans()
 
     return render_template(
@@ -1161,6 +1293,7 @@ def planner() -> str:
         event_id=event_id,
         cancel_under=cancel_under,
         cancel_enabled=cancel_enabled,
+        general_look=general_look_flag,
         active_tab="planner",
         plan_source=plan_source,
     )
@@ -1170,6 +1303,7 @@ def planner() -> str:
 @login_required
 def publish() -> str:
     settings = load_settings()
+    user_role = current_user_role() or ROLE_USER
     saved_plans = load_saved_plans()
     selected_plan_id = None
     preview_html = None
@@ -1215,6 +1349,23 @@ def publish() -> str:
                         message = "Upload erfolgreich."
                 except Exception as exc:  # noqa: BLE001
                     error = f"FTP-Upload fehlgeschlagen: {exc}"
+        if not error and user_role != ROLE_ADMIN:
+            ftp_changed = any(
+                [
+                    settings.ftp_host != ftp_host,
+                    settings.ftp_user != ftp_user,
+                    settings.ftp_password != ftp_password,
+                    settings.ftp_path != ftp_path,
+                ]
+            )
+            if ftp_changed:
+                updated = asdict(settings)
+                updated["ftp_host"] = ftp_host
+                updated["ftp_user"] = ftp_user
+                updated["ftp_password"] = ftp_password
+                updated["ftp_path"] = ftp_path
+                settings = Settings(**updated)
+                save_settings(settings)
 
     return render_template(
         "publish.html",

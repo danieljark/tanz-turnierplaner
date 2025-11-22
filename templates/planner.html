@@ -36,6 +36,10 @@
     <label>
       <input type="checkbox" name="cancel_enabled" {% if cancel_enabled %}checked{% endif %}> Absagen durchführen
     </label>
+    <label>
+      <input type="checkbox" name="general_look" {% if general_look %}checked{% endif %}>
+      General Look (1&nbsp;Min./Tanz) bei ≤6 Paaren einplanen
+    </label>
     <div class="form-actions">
       <button type="submit" name="action" value="generate">Plan erstellen</button>
       {% if plan and plan_source != 'saved' %}

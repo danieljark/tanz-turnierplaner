@@ -19,6 +19,13 @@
       Passwort
       <input type="password" name="password" required>
     </label>
+    <label>
+      Rolle
+      <select name="role">
+        <option value="user">User</option>
+        <option value="admin">Admin</option>
+      </select>
+    </label>
     <div class="form-actions">
       <button type="submit">Anlegen</button>
     </div>
@@ -29,14 +36,26 @@
   {% if users %}
     <table class="tournaments plan-table">
       <thead>
-        <tr><th>Benutzername</th><th>Aktion</th></tr>
+        <tr><th>Benutzername</th><th>Rolle</th><th>Aktionen</th></tr>
       </thead>
       <tbody>
-        {% for username in users.keys() %}
+        {% for username, data in users.items() %}
           <tr>
             <td>{{ username }}</td>
-            <td>
-              <form method="post" onsubmit="return confirm('Benutzer {{ username }} löschen?');">
+            <td>{{ data.role if data.role else data.get('role', 'user') }}</td>
+            <td class="user-actions">
+              <form method="post" class="inline-form">
+                <input type="hidden" name="action" value="role">
+                <input type="hidden" name="username" value="{{ username }}">
+                <label>
+                  <select name="role">
+                    <option value="user" {% if data.role == 'user' %}selected{% endif %}>User</option>
+                    <option value="admin" {% if data.role == 'admin' %}selected{% endif %}>Admin</option>
+                  </select>
+                </label>
+                <button type="submit">Rolle speichern</button>
+              </form>
+              <form method="post" class="inline-form" onsubmit="return confirm('Benutzer {{ username }} löschen?');">
                 <input type="hidden" name="action" value="delete">
                 <input type="hidden" name="username" value="{{ username }}">
                 <button type="submit">Löschen</button>
