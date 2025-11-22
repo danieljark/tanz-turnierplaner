@@ -34,6 +34,14 @@ PLANS_FILE = Path("plans.json")
 PLANNER_RULES_PATH = BASE_DIR / "planner_rules.xml"
 USERS_FILE = Path("users.json")
 
+
+def _user_store_path() -> Path:
+    path = USERS_FILE
+    if path.exists() and path.is_dir():
+        path = path / "users.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
 app = Flask(
     __name__,
     template_folder=str(BASE_DIR / "templates"),
@@ -92,16 +100,18 @@ def load_settings() -> Settings:
 
 
 def load_users() -> Dict[str, str]:
-    if not USERS_FILE.exists():
+    path = _user_store_path()
+    if not path.exists():
         return {}
     try:
-        return json.loads(USERS_FILE.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
 
 
 def save_users(users: Dict[str, str]) -> None:
-    USERS_FILE.write_text(json.dumps(users, indent=2), encoding="utf-8")
+    path = _user_store_path()
+    path.write_text(json.dumps(users, indent=2), encoding="utf-8")
 
 
 def add_user(username: str, password: str) -> bool:
@@ -111,7 +121,7 @@ def add_user(username: str, password: str) -> bool:
     users = load_users()
     if username in users:
         return False
-    users[username] = generate_password_hash(password)
+    users[username] = generate_password_hash(password, method="pbkdf2:sha256", salt_length=16)
     save_users(users)
     return True
 
